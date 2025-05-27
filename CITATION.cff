@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this software in your research, please cite it as below."
+authors:
+  - family-names: "Moussavi"
+    given-names: "Maziar"
+    affiliation: "Kaunas University of Technology"
+    orcid: "https://orcid.org/0000-0003-4108-9454"
+title: "Urchin Creator"
+version: "3.4.0" # Or your current version
+date-released: 2025-05-27 # Or the actual release date
+repository-code: "https://github.com/mahzadyar/UrchinCreator" # Replace with your actual GitHub repo URL if you create one
+keywords:
+  - "nanoparticles"
+  - "urchin model"
+  - "3D modeling"
+  - "MATLAB"
+  - "scientific simulation"
+license: MIT
