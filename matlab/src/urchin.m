@@ -1,48 +1,58 @@
 function [mesh, mask, threshold, eqRadius] = urchin(varargin)
-    % URCHIN  Three-Dimensional Urchin Model Creator
-    % =========================================================================
-    % This function generates a 3D model of a spherical urchin particle with
-    % conical spikes. The spikes' length, tip radius, and orientation can be
-    % customized or randomized.
-    %
-    %   Usage (Name-Value Pairs):
-    %       [mesh, mask, threshold, eqRadius] = urchin('cr',10,'sl',5,'ns',50,'st',0.5, ...
-    %                                       'sc',0.7,'sf',0.2,'res',1, ...
-    %                                       'smth',0.5,'flucMethod','random','distMethod','uniform');
-    %
-    %   If you call the function without output arguments, it automatically
-    %   visualizes the urchin mask and mesh using the viewer3d tool.
-    %       urchin(); 
-    %       urchin('cr',10,'sl',5);
-    %
-    % INPUT (Name-Value Pairs):
-    %   cr          - Core radius. (default 10)
-    %   hr          - Hollow radius. (default 0)    
-    %   sl          - Nominal spike length from core. (default 5)
-    %   us          - Urchin size. us = 2*(cr + sl) if provided, missing cr or sl will be derived. if both missing, cr = us/6 and sl = us/3. if both provided, us is ignored. (default [])
-    %   ns          - Number of spikes. (default 20)
-    %   st          - Spikes tip thickness. Must satisfy st <= cr. (default 0)
-    %   sc          - Conicality factor, 0= cylindrical, 1= maximally conical when spike bases filling the entire core. (default 1)
-    %   sf          - Spike fluctuation range [0,1]. 0 means no fluctuation. (default 0)
-    %   res         - Voxel dimension (smallest discretization unit). (default (cr+sl)/49)
-    %   smth        - Smoothing factor (0 for no smoothing | 1 for maximum voxel smoothing preserving spikes | >1 if you want to melt the spikes away!). (default 1)
-    %   flucMethod  - 'uniform' (Sobol set) or 'random' for spike length flucs. (default 'uniform')
-    %   distMethod  - 'uniform' (Fibonacci) or 'random' for spike orientation. (default 'uniform')
-    %   antialising - If true, upscales the resolution to avoid aliasing. (default true)
-    %
-    % OUTPUT:
-    %   mesh       - A struct containing the surface mesh faces (F) and vertices (V).
-    %   mask       - A 3D float array representing the density mask.
-    %   eqRadius   - Equivalent sphere radius of the final structure.
-    %   threshold  - Threshold value for mask used to define particle surface.
-    %
-    % Dependencies: Image Processing Toolbox, Viewer3D
-    %
-    % Version: 3.4
-    % Created by: Maziar Moussavi
-    % Enhanced via: Github Copilot
-    % Date: 2025-05-07
-    % =========================================================================
+% URCHIN  Three-Dimensional Urchin Model Creator
+% =========================================================================
+% This function generates a 3D model of a spherical urchin particle with
+% conical spikes. The spikes' length, tip radius, and orientation can be
+% customized or randomized.
+% 
+%   Usage (Name-Value Pairs):
+%       [mesh, mask, threshold, eqRadius] = urchin('cr',10,'sl',5,'ns',50,'st',0.5, ...
+%                                       'sc',0.7,'sf',0.2,'res',1, ...
+%                                       'smth',0.5,'flucMethod','random','distMethod','uniform');
+%
+%   If you call the function without output arguments, it automatically
+%   visualizes the urchin mask and mesh using the viewer3d tool.
+%       urchin(); 
+%       urchin('cr',10,'sl',5);
+%
+% INPUT (Name-Value Pairs):
+%   cr          - Core radius. (default 10)
+%   hr          - Hollow radius. (default 0)    
+%   sl          - Nominal spike length from core. (default 5)
+%   us          - Urchin size. us = 2*(cr + sl) if provided, missing cr or sl will be derived. if both missing, cr = us/6 and sl = us/3. if both provided, us is ignored. (default [])
+%   ns          - Number of spikes. (default 20)
+%   st          - Spikes tip thickness. Must satisfy st <= cr. (default 0)
+%   sc          - Conicality factor, 0= cylindrical, 1= maximally conical when spike bases filling the entire core. (default 1)
+%   sf          - Spike fluctuation range [0,1]. 0 means no fluctuation. (default 0)
+%   res         - Voxel dimension (smallest discretization unit). (default (cr+sl)/49)
+%   smth        - Smoothing factor (0 for no smoothing | 1 for maximum voxel smoothing preserving spikes | >1 if you want to melt the spikes away!). (default 1)
+%   flucMethod  - 'uniform' (Sobol set) or 'random' for spike length flucs. (default 'uniform')
+%   distMethod  - 'uniform' (Fibonacci) or 'random' for spike orientation. (default 'uniform')
+%   antialiasing - If true, upscales the resolution to avoid aliasing. (default true)
+%
+% OUTPUT:
+%   mesh       - A struct containing the surface mesh faces (F) and vertices (V).
+%   mask       - A 3D float array representing the density mask.
+%   eqRadius   - Equivalent sphere radius of the final structure.
+%   threshold  - Threshold value for mask used to define particle surface.
+%
+% Dependencies: Image Processing Toolbox, Viewer3D
+%
+% Version: 3.5
+% Created by: Maziar Moussavi
+% Enhanced via: Github Copilot
+% Date: 2025-08-07
+% 
+% Changelog:
+%   v3.5 (2025-08-07):
+%     - Renamed 'antialaising' parameter to 'antialiasing' for consistency.
+%     - Added default handling and validation for 'antialiasing'.
+%     - Improved warnings for parameter clamping (cr, st, smth).
+%     - Refined print statements for debugging and tracing.
+%     - Updated mesh extraction loop threshold management.
+%     - Added this changelog section for version tracking.
+%
+% =========================================================================
 
     tic;
 

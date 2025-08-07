@@ -6,8 +6,9 @@ authors:
     affiliation: "Kaunas University of Technology"
     orcid: "https://orcid.org/0000-0003-4108-9454"
 title: "urchin"
-version: "3.4.0" # Or your current version
+version: "3.5.0"
 date-released: 2025-05-27 # Or the actual release date
+date-released: 2025-08-07 # Updated to match version 3.5.0 release date
 repository-code: "https://github.com/mahzadyar/urchin" # Replace with your actual GitHub repo URL if you create one
 keywords:
   - "nanoparticles"
