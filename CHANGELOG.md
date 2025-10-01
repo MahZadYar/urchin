@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file. The
 format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.1] - 2025-10-01
+
+### Fixed
+
+- Corrected the default spike fluctuation factor (`sf`) to 0 so meshes are
+  deterministic unless jitter is explicitly requested.
+- Wrapped the surface mesh output in a struct so auxiliary data (volume mask,
+  octree metadata) can be attached without breaking MATLAB's `surfaceMesh`
+  class.
+- Updated MATLAB regression tests to target the B-Rep pipeline, covering
+  volume exports and the fluctuation toggle.
+
 ## [4.0.0] - 2025-10-01
 
 ### Highlights

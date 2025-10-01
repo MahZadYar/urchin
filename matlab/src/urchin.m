@@ -87,7 +87,7 @@ function [mesh, diagnostics] = urchin(varargin)
     % Unified meshing refinement scalar (scales all counts proportionally)
     addParameter(p, 'meshRefine', 1.0, @(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
     % Spike fluctuations and orientation distribution
-    addParameter(p, 'sf', 1, @(x)validateattributes(x,{'numeric'},{'scalar','>=',0,'<=',1}));
+    addParameter(p, 'sf', 0, @(x)validateattributes(x,{'numeric'},{'scalar','>=',0,'<=',1}));
     addParameter(p, 'flucMethod', 'uniform', @(x)any(validatestring(x,{'uniform','random','gaussian'})));
     addParameter(p, 'distMethod', 'uniform', @(x)any(validatestring(x,{'uniform','random'})));
     % Optional volume representation controls (voxel grid from mesh)
@@ -448,16 +448,22 @@ function [mesh, diagnostics] = urchin(varargin)
     % Final weld then construct surface mesh
     [Vw, ~, ic] = uniquetol(V, 1e-9, 'ByRows', true);
     Fw = ic(F);
-    mesh = surfaceMesh(Vw, Fw);
+    meshSurface = surfaceMesh(Vw, Fw);
 
     % Built-in mesh quality diagnostics
     diagnostics = struct( ...
-        'IsWatertight',       isWatertight(mesh), ...
-        'IsEdgeManifold',     isEdgeManifold(mesh, false), ...
-        'IsOrientable',       isOrientable(mesh), ...
-        'IsSelfIntersecting', isSelfIntersecting(mesh), ...
-        'IsVertexManifold',   isVertexManifold(mesh) ...
+        'IsWatertight',       isWatertight(meshSurface), ...
+        'IsEdgeManifold',     isEdgeManifold(meshSurface, false), ...
+        'IsOrientable',       isOrientable(meshSurface), ...
+        'IsSelfIntersecting', isSelfIntersecting(meshSurface), ...
+        'IsVertexManifold',   isVertexManifold(meshSurface) ...
     );
+
+    % Wrap the surface mesh so we can attach auxiliary data (volume, bounds, etc.)
+    mesh = struct();
+    mesh.SurfaceMesh = meshSurface;
+    mesh.Vertices = meshSurface.Vertices;
+    mesh.Faces = meshSurface.Faces;
 
     if ~diagnostics.IsWatertight
         warning('Urchin mesh is not watertight. Consider adjusting parameters.');
@@ -546,8 +552,8 @@ function [mesh, diagnostics] = urchin(varargin)
     %% 6) Visualize if no output is requested
     if nargout == 0
         viewer = viewer3d;
-        surfaceMeshShow(mesh, Parent=viewer, WireFrame=true);
-        surfaceMeshShow(mesh, Parent=viewer, Alpha=0.5);
+        surfaceMeshShow(mesh.SurfaceMesh, Parent=viewer, WireFrame=true);
+        surfaceMeshShow(mesh.SurfaceMesh, Parent=viewer, Alpha=0.5);
     end
 end
 
