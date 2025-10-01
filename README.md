@@ -1,56 +1,86 @@
 # urchin
 
-**urchin** is a MATLAB-based tool for generating 3D models of spherical urchin-like nanoparticles with customizable conical spikes. These models are suitable for use in scientific simulations, such as electromagnetic or fluid dynamics studies.
+`urchin` is a MATLAB toolkit for generating deterministic, curvature-aware B-Rep
+surface meshes of nano-urchin particles. Version 4.0 introduces a brand-new
+watertight meshing pipeline that replaces the legacy voxel workflow while
+retaining optional volume exports for users that still need them. The codebase
+originated in support of the peer-reviewed study *"Influence of Spike Geometry
+on Electromagnetic Field Enhancement and the Linear and Nonlinear Plasmonic
+Properties of Gold Nanourchins"* (ACS Applied Nano Materials, DOI:
+[10.1021/acsanm.5c03297](https://doi.org/10.1021/acsanm.5c03297)).
 
-The core of this project is the `urchin.m` function, which allows for detailed control over the urchin\'s geometry, including core size, spike length, number of spikes, tip thickness, conicality, and surface smoothing.
+## 🚀 What’s new in v4.0
 
-A Python port of this tool is planned for the future.
+- **B-Rep first** – spikes, caps, and core patches are stitched in real time to
+    create a single watertight `surfaceMesh` object ready for COMSOL and similar
+    solvers.
+- **Deterministic seam trimming** – per-spike trimming keeps seams aligned and
+    prevents duplicate faces or holes even for dense orientation sets.
+- **Built-in diagnostics** – every mesh can be validated in milliseconds with
+    `isWatertight`, `isEdgeManifold`, `isOrientable`, `isSelfIntersecting`, and
+    `isVertexManifold` checks.
 
-## Project Structure
+See the full release notes in [`CHANGELOG.md`](CHANGELOG.md).
 
-- `matlab/src/`: Contains the main MATLAB source code (`urchin.m`).
-- `matlab/examples/`: Includes example scripts demonstrating how to use `urchin.m`.
-- `matlab/tests/`: Contains unit tests for the MATLAB code.
-- `python/`: Placeholder for the future Python version.
-- `docs/`: Project documentation.
-- `data/`: Directory for example output files.
-- `.github/workflows/`: GitHub Actions for Continuous Integration.
+## Project layout
 
-## MATLAB Version
+- `matlab/src/` – core source code (`urchin.m` and helpers).
+- `matlab/examples/` – runnable scripts showing typical workflows.
+- `matlab/tests/` – unit tests for trimming, stitching, and diagnostics.
+- `CITATION.cff` – citation metadata for the project.
 
-### Dependencies
+## Requirements
 
-- MATLAB
-- Image Processing Toolbox
-- Statistics and Machine Learning Toolbox (for `sobolset`, `net` if using \'uniform\' `flucMethod`)
-- (Optional) Parallel Computing Toolbox (for GPU acceleration)
-- (For visualization in examples/main function) `viewer3d`, `volshow`, `surfaceMeshShow` (which might be part of a specific toolbox or require separate installation/availability).
+- MATLAB R2023b or newer (tested).
+- Statistics and Machine Learning Toolbox (`sobolset`, `net`).
+- Lidar Toolbox (`surfaceMesh`, `surfaceMeshShow`, `isWatertight`, …).
+- Optional: Image Processing Toolbox for voxel utilities such as `volshow`.
+- Optional: Parallel Computing Toolbox for GPU experiments.
 
-### How to Use
+## Quick start
 
-1. Ensure MATLAB and the required toolboxes are installed.
-2. Add the `matlab/src` directory to your MATLAB path.
+1. Add the source directory to your MATLAB path:
 
-    ```matlab
-    addpath(\'path/to/urchin/matlab/src\');
-    ```
+     ```matlab
+     addpath("path/to/urchin/matlab/src");
+     ```
 
-3. Run the example script `matlab/examples/run_urchin_creation.m` or call the `urchin` function directly:
+2. Generate an urchin and collect diagnostics:
 
-    ```matlab
-    % Example call
-    [mesh, mask, threshold, eqRadius] = urchin(\'cr\', 30, \'sl\', 15, \'ns\', 100, \'st\', 2);
-    
-    % To visualize if no output arguments are requested
-    urchin(\'cr\', 30, \'sl\', 15, \'ns\', 100, \'st\', 2);
-    ```
+     ```matlab
+     [mesh, diagnostics] = urchin('cr', 30, 'sl', 15, 'ns', 100, 'st', 2);
 
-Refer to the documentation in `docs/` and the comments within `matlab/src/urchin.m` for detailed information on parameters.
+     fprintf("Watertight: %d\n", diagnostics.IsWatertight);
+     surfaceMeshShow(mesh, WireFrame=true);
+     ```
+
+3. Enable optional volume exports only when needed:
+
+     ```matlab
+     params = { 'genVolume', true, 'volAdaptive', true, 'volRes', 192 };
+     mesh = urchin('cr', 20, 'sl', 12, 'ns', 64, params{:});
+     writeSurfaceMesh(mesh, "urchin.stl");
+     ```
+
+More end-to-end demonstrations are available in
+`matlab/examples/run_urchin_creation.m`.
+
+## Testing
+
+MATLAB-based unit tests live under `matlab/tests/`. From MATLAB, run:
+
+```matlab
+cd path/to/urchin/matlab/tests
+results = runtests;
+table(results)
+```
 
 ## Citation
 
-If you use this software in your research, please cite it using the information in `CITATION.cff`.
+If this work supports your research, please cite it using the metadata in
+[`CITATION.cff`](CITATION.cff).
 
 ## License
 
-This project is licensed under the MIT License - see the `LICENSE` file for details.
+This project is released under the MIT License. See [`LICENSE`](LICENSE) for
+details.

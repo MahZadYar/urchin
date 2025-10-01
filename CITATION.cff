@@ -6,9 +6,8 @@ authors:
     affiliation: "Kaunas University of Technology"
     orcid: "https://orcid.org/0000-0003-4108-9454"
 title: "urchin"
-version: "3.5.0"
-date-released: 2025-05-27 # Or the actual release date
-date-released: 2025-08-07 # Updated to match version 3.5.0 release date
+version: "4.0.0"
+date-released: 2025-10-01
 repository-code: "https://github.com/mahzadyar/urchin" # Replace with your actual GitHub repo URL if you create one
 keywords:
   - "nanoparticles"
@@ -17,3 +16,15 @@ keywords:
   - "MATLAB"
   - "scientific simulation"
 license: MIT
+notes: |
+  Originally developed and first applied in the peer-reviewed article
+  "Influence of Spike Geometry on Electromagnetic Field Enhancement and the
+  Linear and Nonlinear Plasmonic Properties of Gold Nanourchins" published in
+  ACS Applied Nano Materials (DOI: 10.1021/acsanm.5c03297).
+references:
+  - type: article
+    title: "Influence of Spike Geometry on Electromagnetic Field Enhancement and the Linear and Nonlinear Plasmonic Properties of Gold Nanourchins"
+    journal: "ACS Applied Nano Materials"
+    year: 2025
+    doi: 10.1021/acsanm.5c03297
+    notes: "The urchin codebase was originally developed for this study."
