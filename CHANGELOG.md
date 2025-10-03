@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file. The
 format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.0] - 2025-10-04
+
+### Added
+
+- Introduced per-spike spherical tip clamping so short spikes keep their tip
+  seams tangent without collapsing into the core.
+- Added a spacing-driven cone sampling routine that adapts ring placement to
+  each spike's axial length while allowing adjacent rings to carry different
+  polygon counts.
+
+### Changed
+
+- Tightened the short-spike base fallback so cones maintain a finite footprint
+  even when the tangential base limit degenerates.
+- Refined documentation and examples to highlight the new geometry safeguards.
+
+### Fixes
+
+- Prevented dense ring stacking on short spikes by decoupling axial ring count
+  from per-ring segment interpolation.
+
 ## [4.0.1] - 2025-10-01
 
 ### Fixed

@@ -16,17 +16,45 @@ classdef test_urchin < matlab.unittest.TestCase
 
     methods (Test)
         function testDefaultRunProducesSurfaceMesh(testCase)
-            % Default call should yield a surfaceMesh with diagnostics
-            [mesh, diagnostics] = urchin('ns', testCase.SmallSpikeCount);
+            % Default call should yield a surfaceMesh; diagnostics are computed on demand
+            urchinStruct = urchin('spikeCount', testCase.SmallSpikeCount);
+            diagnostics = meshDiagnostics(urchinStruct);
 
-            testCase.verifyTrue(isstruct(mesh) && isfield(mesh, "SurfaceMesh"), ...
+            testCase.verifyTrue(isstruct(urchinStruct) && isfield(urchinStruct, "SurfaceMesh"), ...
                 "urchin should return a struct exposing the underlying surface mesh.");
-            testCase.verifyTrue(isa(mesh.SurfaceMesh, "surfaceMesh"), ...
+            testCase.verifyTrue(isa(urchinStruct.SurfaceMesh, "surfaceMesh"), ...
                 "SurfaceMesh field must be a surfaceMesh instance.");
-            testCase.verifyGreaterThan(size(mesh.Vertices, 1), 0, ...
+            testCase.verifyGreaterThan(size(urchinStruct.Vertices, 1), 0, ...
                 "Default run should produce vertices.");
-            testCase.verifyGreaterThan(size(mesh.Faces, 1), 0, ...
+            testCase.verifyGreaterThan(size(urchinStruct.Faces, 1), 0, ...
                 "Default run should produce faces.");
+
+            testCase.verifyTrue(isfield(urchinStruct, "Parameters"), ...
+                "Returned struct should list the input parameters.");
+            params = urchinStruct.Parameters;
+            testCase.verifyTrue(isfield(params, "spikeConicality"), ...
+                "Parameters must include spikeConicality.");
+            testCase.verifyGreaterThanOrEqual(params.spikeTip, 0, ...
+                "Spike tip diameter should be non-negative and zero when collapsed.");
+
+            testCase.verifyTrue(isfield(urchinStruct, "Metrics"), ...
+                "Returned struct should expose derived metrics.");
+            metrics = urchinStruct.Metrics;
+            testCase.verifyGreaterThan(metrics.MinimumSpacing, 0, ...
+                "Minimum spacing metric should be positive.");
+            testCase.verifyGreaterThanOrEqual(metrics.SpikeBaseRadius, 0, ...
+                "Spike base radius metric should be non-negative.");
+            testCase.verifyTrue(isfield(metrics, "SpikeSeamRadius"), ...
+                "Metrics should expose the cone-to-sphere seam radius.");
+            testCase.verifyGreaterThanOrEqual(metrics.SpikeSeamRadius, 0, ...
+                "Seam radius metric should be non-negative.");
+            tipRadiusExpected = 0.5 * urchinStruct.Parameters.spikeTip;
+            testCase.verifyGreaterThanOrEqual(metrics.SpikeTipRadius, 0, ...
+                "Spherical tip radius metric should be non-negative.");
+            testCase.verifyEqual(metrics.SpikeTipRadius, tipRadiusExpected, "AbsTol", 1e-9, ...
+                "Reported tip radius should match half of the spherical tip diameter.");
+            testCase.verifyGreaterThanOrEqual(metrics.TotalVolume, 0, ...
+                "Total volume metric should be non-negative.");
 
             testCase.verifyTrue(isstruct(diagnostics), ...
                 "Diagnostics output must be a struct with quality flags.");
@@ -36,8 +64,8 @@ classdef test_urchin < matlab.unittest.TestCase
 
         function testDefaultIsDeterministic(testCase)
             % Two identical calls should produce identical geometry
-            [meshA, ~] = urchin('ns', testCase.SmallSpikeCount);
-            [meshB, ~] = urchin('ns', testCase.SmallSpikeCount);
+            meshA = urchin('spikeCount', testCase.SmallSpikeCount);
+            meshB = urchin('spikeCount', testCase.SmallSpikeCount);
 
             delta = max(abs(meshA.Vertices(:) - meshB.Vertices(:)));
             testCase.verifyLessThanOrEqual(delta, 1e-9, ...
@@ -45,20 +73,24 @@ classdef test_urchin < matlab.unittest.TestCase
         end
 
         function testSpikeFluctuationDisabledByDefault(testCase)
-            % Default sf must be 0 so there is no jitter unless requested
-            [meshDefault, ~] = urchin('ns', testCase.SmallSpikeCount);
-            [meshFluct, ~] = urchin('ns', testCase.SmallSpikeCount, 'sf', 0.5, 'flucMethod', 'random');
+            % Default flucFactor must be 0 so there is no jitter unless requested
+            meshDefault = urchin('spikeCount', testCase.SmallSpikeCount);
+            meshFluct = urchin('spikeCount', testCase.SmallSpikeCount, 'flucFactor', 0.5, 'flucMethod', 'random');
 
-            delta = max(abs(meshDefault.Vertices(:) - meshFluct.Vertices(:)));
-            testCase.verifyGreaterThan(delta, 1e-6, ...
+            bboxDefault = [min(meshDefault.Vertices, [], 1); max(meshDefault.Vertices, [], 1)];
+            bboxFluct   = [min(meshFluct.Vertices, [], 1); max(meshFluct.Vertices, [], 1)];
+            bboxDelta = max(abs(bboxDefault(:) - bboxFluct(:)));
+
+            testCase.verifyGreaterThan(bboxDelta, 1e-6, ...
                 "Enabling spike fluctuation should perturb the geometry compared to defaults.");
         end
 
         function testVolumeMaskExport(testCase)
             % Dense volume export should populate VolumeMask metadata
-            [mesh, diagnostics] = urchin('ns', 12, 'genVolume', true, 'volRes', 48);
+            mesh = urchin('spikeCount', 12, 'genVolume', true, 'volRes', 48);
 
-            testCase.verifyTrue(isstruct(diagnostics), "Diagnostics should still be returned.");
+            diagnostics = meshDiagnostics(mesh);
+            testCase.verifyTrue(isstruct(diagnostics), "Diagnostics helper should return a struct.");
             testCase.verifyTrue(isfield(mesh, 'VolumeMask'), ...
                 "VolumeMask field must be present when genVolume=true.");
             testCase.verifyTrue(~isempty(mesh.VolumeMask), ...
@@ -67,11 +99,13 @@ classdef test_urchin < matlab.unittest.TestCase
                 "VolumeMask must be a 3-D array.");
             testCase.verifyTrue(islogical(mesh.VolumeMask), ...
                 "VolumeMask should be logical to represent occupancy.");
+            testCase.verifyEqual(mesh.Parameters.volRes, 48, ...
+                "Parameters struct should reflect the requested volRes.");
         end
 
         function testAdaptiveVolumeLeaves(testCase)
             % Sparse adaptive volume export should expose octree leaves metadata
-            mesh = urchin('ns', 12, 'genVolume', true, 'volAdaptive', true, 'volRes', 64);
+            mesh = urchin('spikeCount', 12, 'genVolume', true, 'volAdaptive', true, 'volRes', 64);
 
             testCase.verifyTrue(isfield(mesh, 'VolumeOctree'), ...
                 "VolumeOctree field must be populated for adaptive voxelizations.");
@@ -79,6 +113,53 @@ classdef test_urchin < matlab.unittest.TestCase
                 "VolumeOctree should expose Leaves metadata.");
             testCase.verifyGreaterThan(numel(mesh.VolumeOctree.Leaves), 0, ...
                 "Adaptive voxelization should produce at least one leaf block.");
+            testCase.verifyTrue(mesh.Parameters.volAdaptive, ...
+                "Parameters struct should record volAdaptive flag.");
+        end
+
+        function testMinimalSeamFallbackKeepsGeometryStable(testCase)
+            % When tangential seams fall below sampling limits, we still expect
+            % a valid mesh thanks to the three-point seam fallback.
+            mesh = urchin('spikeCount', 12, 'spikeLength', 1e-3, 'resolution', 32);
+
+            testCase.verifyGreaterThan(size(mesh.Vertices, 1), 0, ...
+                "Minimal seam fallback should still produce geometry.");
+
+            minSpacing = 2 * (mesh.Parameters.coreRadius + mesh.Parameters.spikeLength) / mesh.Parameters.resolution;
+            seamDiameter = 2 * mesh.Metrics.SpikeSeamRadius;
+
+            testCase.verifyLessThan(seamDiameter, minSpacing, ...
+                "Fallback scenario should correspond to seams smaller than the sampling threshold.");
+
+            fallbackBase = 0.5 * minSpacing;
+            testCase.verifyGreaterThanOrEqual(mesh.Metrics.SpikeBaseRadius, fallbackBase - 1e-9, ...
+                "Fallback should keep the base radius at least at the spacing-driven minimum.");
+            testCase.verifyGreaterThan(mesh.Metrics.SpikeBaseRadius, 0, ...
+                "Base radius should stay finite even when tangency degenerates.");
+        end
+
+        function testShortSpikeMaintainsFiniteBaseAndSeam(testCase)
+            % Version 4.1.0 clamps tip spheres and keeps short spikes from collapsing.
+            mesh = urchin('spikeCount', testCase.SmallSpikeCount, ...
+                'spikeLength', 0.05, ...
+                'spikeTip', 0.5, ...
+                'resolution', 80);
+
+            minSpacing = 2 * (mesh.Parameters.coreRadius + mesh.Parameters.spikeLength) / mesh.Parameters.resolution;
+            minBaseRadius = 0.5 * minSpacing;
+
+            baseRadius = mesh.Metrics.SpikeBaseRadius;
+            seamRadius = mesh.Metrics.SpikeSeamRadius;
+
+            testCase.verifyGreaterThan(baseRadius, 0, ...
+                "Short spikes should keep a finite base radius.");
+            testCase.verifyGreaterThanOrEqual(baseRadius, minBaseRadius - 1e-9, ...
+                "Base radius should respect the spacing-driven fallback.");
+
+            testCase.verifyGreaterThanOrEqual(seamRadius, 0, ...
+                "Seam radius metric should never be negative.");
+            testCase.verifyLessThanOrEqual(seamRadius, baseRadius + 1e-9, ...
+                "Seam radius should not exceed the base radius.");
         end
     end
 end
