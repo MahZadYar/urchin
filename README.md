@@ -1,13 +1,16 @@
 # urchin
 
 `urchin` is a MATLAB toolkit for generating deterministic, curvature-aware B-Rep
-surface meshes of urchin-like particles. Version 4.1.0 reinforces the short-spike
-behaviour introduced in 4.0 by clamping spherical tips per spike, keeping cone
-bases finite, and deriving cone sampling strictly from the requested spacing.
-Patch 4.0.1 restored zero spike jitter by default so results are deterministic
-unless you opt into fluctuations. Version 4.0 introduced a brand-new watertight
-meshing pipeline that replaces the legacy voxel workflow while retaining optional
-volume exports for users that still need them. The codebase
+surface meshes of urchin-like particles. Version 4.2.0 expands the geometry
+metrics to track per-spike base maxima, derives those maxima directly from spike
+orientations, and feeds the tighter bounds back into mesh generation so short
+spikes stay stable. Version 4.1.0 reinforced the short-spike behaviour introduced
+in 4.0 by clamping spherical tips per spike, keeping cone bases finite, and
+deriving cone sampling strictly from the requested spacing. Patch 4.0.1 restored
+zero spike jitter by default so results are deterministic unless you opt into
+fluctuations. Version 4.0 introduced a brand-new watertight meshing pipeline that
+replaces the legacy voxel workflow while retaining optional volume exports for
+users that still need them. The codebase
 originated in support of the peer-reviewed study *"Influence of Spike Geometry
 on Electromagnetic Field Enhancement and the Linear and Nonlinear Plasmonic
 Properties of Gold Nanourchins"* (ACS Applied Nano Materials, DOI:
@@ -15,6 +18,10 @@ Properties of Gold Nanourchins"* (ACS Applied Nano Materials, DOI:
 
 ## 🚀 What’s new
 
+- **Release v4.2.0** – derives per-spike maximum base radii from orientation
+    dot products, exposes the maxima vector in `Metrics.SpikeBaseMaxima`, and
+    feeds the tighter bound into the cone generator so short spikes hold their
+    footprint.
 - **Release v4.1.0** – clamps each spike’s spherical tip radius to its actual
     length so short spikes stay tangent, rebalances cone ring sampling to use the
     requested spacing instead of interpolated polygon counts, and keeps spike
@@ -74,7 +81,8 @@ See the full release notes in [`CHANGELOG.md`](CHANGELOG.md).
     The returned struct now exposes two handy sub-structs: `urchinStruct.Parameters`
     echoes every name-value argument (with collapsed spike tips reported as 0),
     while `urchinStruct.Metrics` summarises derived quantities such as minimum
-    sampling spacing, spike base radius, and the enclosed volume. The `spikeTip`
+    sampling spacing, per-spike base maxima, aggregate spike base radius, and the
+    enclosed volume. The `spikeTip`
     name-value argument represents the diameter of the spherical cap that closes
     each spike; the cone body is solved so it meets that sphere tangentially.
     When the requested resolution is so coarse that the tangential seam ring

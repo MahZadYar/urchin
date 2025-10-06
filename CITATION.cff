@@ -6,8 +6,8 @@ authors:
     affiliation: "Kaunas University of Technology"
     orcid: "https://orcid.org/0000-0003-4108-9454"
 title: "urchin"
-version: "4.1.0"
-date-released: 2025-10-04
+version: "4.2.0"
+date-released: 2025-10-10
 repository-code: "https://github.com/mahzadyar/urchin"
 keywords:
   - "nanoparticles"

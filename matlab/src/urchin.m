@@ -78,7 +78,7 @@ function urchin = urchin(varargin)
     addParameter(p, 'spikeLength', 1, @(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
     addParameter(p, 'spikeCount', 100, @(x)validateattributes(x,{'numeric'},{'scalar','integer','>=',0}));
     addParameter(p, 'spikeTip', [],  @(x)validateattributes(x,{'numeric'},{'scalar','nonnegative'}));
-    addParameter(p, 'spikeConicality', 1, @(x)validateattributes(x,{'numeric'},{'scalar','>=',-1,'<=',1}));
+    addParameter(p, 'spikeConicality', 0.5, @(x)validateattributes(x,{'numeric'},{'scalar','>=',-1,'<=',1}));
     addParameter(p, 'filletRatio', 0.25, @(x)validateattributes(x,{'numeric'},{'scalar','>=',0,'<=',0.5}));
     addParameter(p, 'resolution', 100, @(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
     addParameter(p, 'useFillet', true, @(x)islogical(x) && isscalar(x));
@@ -217,69 +217,42 @@ function urchin = urchin(varargin)
     % least one closest pair) while being as large as analytically possible
     % under the given orientation set.
     if spikeCount == 0
-        theta_min = pi; % arbitrary; no spikes
+        theta_min_per_spike = zeros(0,1);
     elseif spikeCount == 1
-        theta_min = pi; % single spike: allow up to hemisphere
+        theta_min_per_spike = pi;
     else
-        % Compute maximum cosine (excluding self) to find minimal angular sep
+        % Compute maximum cosine (excluding self) to find minimal angular sep per spike
         Ddot = spike_orientations * spike_orientations.'; % spikeCount x spikeCount dot products
         Ddot(1:spikeCount+1:end) = -Inf; % ignore diagonal
-        maxDot = max(Ddot(:));   % largest cosine between distinct spikes
-        maxDot = min(1, max(-1, maxDot));
-        theta_min = acos(maxDot); % smallest angle between two spikes
+        maxDotPerSpike = max(Ddot, [], 2);
+        maxDotPerSpike(~isfinite(maxDotPerSpike)) = -1;
+        maxDotPerSpike = min(1, max(-1, maxDotPerSpike));
+        theta_min_per_spike = acos(maxDotPerSpike); % smallest angle between each spike and its nearest neighbour
     end
-    alpha_base_max = 0.5 * theta_min;           % tangent half-angle
+
+    if isempty(theta_min_per_spike)
+        theta_min_global = pi;
+    else
+        theta_min_global = min(theta_min_per_spike);
+    end
+
+    alpha_base_max_per_spike = 0.5 * theta_min_per_spike;           % tangent half-angle per spike
 
     theta_ratio = coreRadius / (coreRadius + spikeLength + tipSphereRadius);
     theta_ratio = min(1, max(-1, theta_ratio));
     theta_max = acos(theta_ratio);
-    alpha_base_max = min(theta_max, alpha_base_max);      % clamp to tangent angle
-    r_base_max = coreRadius * sin(alpha_base_max);      % maximal non-overlapping base radius
-    % numeric safety clamps
+    alpha_base_max_per_spike = min(alpha_base_max_per_spike, theta_max);      % clamp to tangent angle per spike
+
+    r_base_max_per_spike = coreRadius * sin(alpha_base_max_per_spike);      % maximal non-overlapping base radius per spike
+    if ~isempty(r_base_max_per_spike)
+        r_base_max_per_spike = min(r_base_max_per_spike, 0.999 * coreRadius);
+        r_base_max_per_spike = max(r_base_max_per_spike, 1e-9);
+    end
+
+    r_base_max = coreRadius * sin(0.5 * theta_min_global);
     r_base_max = min(r_base_max, 0.999 * coreRadius);
     r_base_max = max(r_base_max, 1e-9);
 
-    % Determine base radius consistent with spherical tip tangency
-    z_apex_nominal = coreRadius + spikeLength;
-    z_tip_center_nominal = z_apex_nominal - tipSphereRadius;
-    r_tip = min(tipSphereRadius, r_base_max);
-    r_base = min(max(r_tip, 0), r_base_max);
-
-        if tipSphereRadius > 0 && r_base_max > 0
-            for iter = 1:8
-                [r_tip_candidate, ~, ~, tangentValid] = solve_tip_tangent(r_base, coreRadius, z_tip_center_nominal, tipSphereRadius);
-                if ~tangentValid
-                    r_tip_candidate = min(r_base, tipSphereRadius);
-                end
-                if conicalityEffective >= 0
-                    r_base_target = r_tip_candidate + conicalityEffective * (r_base_max - r_tip_candidate);
-                else
-                    r_base_target = max(0, (1 + conicalityEffective) * r_tip_candidate);
-                end
-                r_base_target = min(r_base_target, r_base_max);
-                if abs(r_base_target - r_base) <= 1e-9 * scale
-                    r_base = r_base_target;
-                    break;
-                end
-                r_base = r_base_target;
-            end
-            [r_tip, alpha_nominal, z_seam_nominal, tangentValid] = solve_tip_tangent(r_base, coreRadius, z_tip_center_nominal, tipSphereRadius);
-            if ~tangentValid
-                r_tip = min(r_base, tipSphereRadius);
-                alpha_nominal = asin(min(1, max(0, r_tip / max(tipSphereRadius, 1e-12))));
-                z_seam_nominal = z_tip_center_nominal + tipSphereRadius * cos(alpha_nominal);
-            end
-        else
-            r_tip = 0;
-            alpha_nominal = pi/2;
-            z_seam_nominal = z_apex_nominal;
-            r_base = min(r_base_max, max(r_base, 0));
-        end
-
-        r_base_nominal = r_base;
-        r_tip_nominal = r_tip;
-        alpha_nominal_default = alpha_nominal;
-        z_seam_nominal_default = z_seam_nominal;
 
     base_collapse_tol = max(0.5 * min_spacing, 1e-9);
     if force_cylinder
@@ -351,23 +324,32 @@ function urchin = urchin(varargin)
         z_apex_i = coreRadius + spike_length_i;
         z_tip_center_i = z_apex_i - tipSphereRadius_i;
 
-        r_base_i = r_base_nominal;
+        if isempty(r_base_max_per_spike)
+            r_base_max_i = r_base_max;
+        else
+            r_base_max_i = r_base_max_per_spike(i);
+        end
+
+        [r_base_nominal_i, r_tip_nominal_i, alpha_nominal_default_i, z_seam_nominal_default_i] = compute_nominal_spike_profile( ...
+            coreRadius, spike_length_i, tipSphereRadius_i, conicalityEffective, r_base_max_i, scale);
+
+        r_base_i = r_base_nominal_i;
         min_base_radius = 0.5 * min_spacing;
         if tipSphereRadius_i > 0
             tangent_limit = tangent_base_limit(coreRadius, tipSphereRadius_i, spike_length_i);
             if tangent_limit > 1e-9
                 r_base_i = min(r_base_i, tangent_limit);
             else
-                fallback_base = min(r_base_max, max(min_base_radius, 1e-9));
+                fallback_base = min(r_base_max_i, max(min_base_radius, 1e-9));
                 if fallback_base > 0
                     r_base_i = max(r_base_i, fallback_base);
                 end
             end
         end
-        r_base_i = min(r_base_i, r_base_max);
+        r_base_i = min(r_base_i, r_base_max_i);
         r_base_i = max(r_base_i, 0);
         if r_base_i > 0 && r_base_i < min_base_radius
-            r_base_i = min(min_base_radius, max(r_base_i, r_base_max));
+            r_base_i = min(min_base_radius, max(r_base_i, r_base_max_i));
         end
         if r_base_i >= coreRadius
             r_base_i = 0.999 * coreRadius;
@@ -511,10 +493,10 @@ function urchin = urchin(varargin)
             force_pointy_tip_i = false;
         end
 
-        minimal_seam = false;
-        alpha_i = alpha_nominal_default;
-        z_seam_i = z_seam_nominal_default;
-        seam_radius_i = r_tip_nominal;
+    minimal_seam = false;
+    alpha_i = alpha_nominal_default_i;
+    z_seam_i = z_seam_nominal_default_i;
+    seam_radius_i = r_tip_nominal_i;
 
         if tipSphereRadius_i > 0
             [seam_candidate, alpha_candidate, z_seam_candidate, tangentValid_i] = solve_tip_tangent(max(r_base_i, 0), coreRadius, z_tip_center_i, tipSphereRadius_i);
@@ -740,6 +722,7 @@ function urchin = urchin(varargin)
     urchin.Metrics = struct( ...
         'MinimumSpacing', min_spacing, ...
         'SpikeBaseRadius', spikeBaseRadiusMetric, ...
+        'SpikeBaseMaxima', r_base_max_per_spike, ...
         'SpikeSeamRadius', spikeSeamRadius, ...
         'SpikeTipRadius', spikeTipSphereRadius, ...
         'SpikeTipDiameter', spikeTipEffectiveDiameter, ...
@@ -832,9 +815,64 @@ function urchin = urchin(varargin)
     %% 6) Visualize if no output is requested
     if nargout == 0
         viewer = viewer3d;
-        surfaceMeshShow(urchin.SurfaceMesh, Parent=viewer, WireFrame=true);
+        viewer.CameraPosition = [0 0 -scale];
+        viewer.CameraUpVector = [0 1 0];
+        viewer.Lighting = 'off';
         surfaceMeshShow(urchin.SurfaceMesh, Parent=viewer, Alpha=0.5);
+        surfaceMeshShow(urchin.SurfaceMesh, Parent=viewer, Wireframe=true);
+        % surfaceMeshShow(urchin.SurfaceMesh, Parent=viewer, VerticesOnly=true);
+
     end
+end
+
+function [r_base_nominal, r_tip_nominal, alpha_nominal, z_seam_nominal] = compute_nominal_spike_profile(coreRadius, spikeLength, tipSphereRadius, conicalityEffective, r_base_max_local, scale)
+%COMPUTE_NOMINAL_SPIKE_PROFILE Baseline spike profile honoring tip tangency and conicality.
+
+    r_base_max_local = max(0, min(r_base_max_local, 0.999 * coreRadius));
+    spikeLength = max(spikeLength, 0);
+    z_apex = coreRadius + spikeLength;
+    tipSphereRadius = max(0, min(tipSphereRadius, spikeLength));
+    z_tip_center = z_apex - tipSphereRadius;
+
+    if tipSphereRadius > 0 && r_base_max_local > 0
+        r_base = min(max(min(tipSphereRadius, r_base_max_local), 0), r_base_max_local);
+        for iter = 1:8
+            [r_tip_candidate, ~, ~, tangentValid] = solve_tip_tangent(r_base, coreRadius, z_tip_center, tipSphereRadius);
+            if ~tangentValid
+                r_tip_candidate = min(r_base, tipSphereRadius);
+            end
+            if conicalityEffective >= 0
+                r_base_target = r_tip_candidate + conicalityEffective * (r_base_max_local - r_tip_candidate);
+            else
+                r_base_target = max(0, (1 + conicalityEffective) * r_tip_candidate);
+            end
+            r_base_target = min(r_base_target, r_base_max_local);
+            if abs(r_base_target - r_base) <= 1e-9 * max(scale, 1)
+                r_base = r_base_target;
+                break;
+            end
+            r_base = r_base_target;
+        end
+
+        [r_tip_nominal, alpha_nominal, z_seam_nominal, tangentValid] = solve_tip_tangent(r_base, coreRadius, z_tip_center, tipSphereRadius);
+        if ~tangentValid
+            r_tip_nominal = min(r_base, tipSphereRadius);
+            ratio = min(1, max(r_tip_nominal / max(tipSphereRadius, 1e-12), 0));
+            alpha_nominal = max(1e-6, asin(ratio));
+            z_seam_nominal = z_tip_center + tipSphereRadius * cos(alpha_nominal);
+        end
+        r_base_nominal = r_base;
+    else
+        r_base_nominal = min(r_base_max_local, max(0, min(tipSphereRadius, r_base_max_local)));
+        r_tip_nominal = 0;
+        alpha_nominal = pi/2;
+        z_seam_nominal = z_apex;
+    end
+
+    r_base_nominal = max(r_base_nominal, 0);
+    r_tip_nominal = max(min(r_tip_nominal, tipSphereRadius), 0);
+    alpha_nominal = min(max(alpha_nominal, 1e-6), pi/2);
+    z_seam_nominal = max(z_seam_nominal, coreRadius);
 end
 
 function r_base_limit = tangent_base_limit(coreRadius, tipSphereRadius, spikeLength)

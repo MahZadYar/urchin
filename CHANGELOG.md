@@ -1,8 +1,32 @@
 ﻿# Changelog
 
+<!-- markdownlint-disable MD024 -->
+
 All notable changes to this project will be documented in this file. The
 format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [4.2.0] - 2025-10-10
+
+<!-- markdownlint-disable-next-line MD024 -->
+### Added
+
+- Derived per-spike maximum base radii from orientation dot products and exposed
+  them via `Metrics.SpikeBaseMaxima`.
+- Extended automated tests to cover the new per-spike maxima output.
+
+<!-- markdownlint-disable-next-line MD024 -->
+### Changed
+
+- Used the per-spike maxima bounds during cone synthesis so short spikes retain
+  stable bases without exceeding their angular neighbourhoods.
+- Refined documentation and examples to describe the per-spike maxima metric.
+
+<!-- markdownlint-disable-next-line MD024 -->
+### Fixed
+
+- Removed redundant base radius tightening when per-spike maxima already bound
+  the footprint, yielding consistent results across dense orientation sets.
 
 ## [4.1.0] - 2025-10-04
 
