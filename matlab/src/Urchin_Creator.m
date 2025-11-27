@@ -140,19 +140,14 @@ end
 if visualize.showSurfaceMesh && isfield(urchinStruct, 'SurfaceMesh')
     if exist('viewer3d', 'file') == 2 && exist('surfaceMeshShow', 'file') == 2
         viewer = viewer3d;
-        if(visualize.surfaceMeshAlpha)
+        if visualize.surfaceMeshAlpha
             surfaceMeshShow(urchinStruct.SurfaceMesh, Parent=viewer, Alpha=visualize.surfaceMeshAlpha);
         end
-        if(visualize.surfaceMeshWireframe)
+        if visualize.surfaceMeshWireframe
             surfaceMeshShow(urchinStruct.SurfaceMesh, Parent=viewer, WireFrame=true);
         end
         if visualize.annotateSpikeInfo
-            try
-                annotateSpikeApexes(viewer, urchinStruct);
-            catch annotationErr
-                warning('Urchin_Creator:annotateSpikeInfoFailed', ...
-                    'Unable to annotate spikes: %s', annotationErr.message);
-            end
+            annotateSpikeApexPoints(viewer, urchinStruct);
         end
     else
         figure('Name', 'Urchin Surface Mesh');
@@ -288,54 +283,43 @@ end
 % Utility helpers are now provided as standalone functions:
 %   mergeStructs.m, struct2NameValue.m, autoLabel.m, valueToken.m
 
-function annotateSpikeApexes(viewer, urchinStruct)
-%ANNOTATESPIKEApexes Add spike index/length labels as 3D point annotations.
+function annotateSpikeApexPoints(viewer, urchinStruct)
+%ANNOTATESPIKEApexPOINTS Place 3D point annotations at spike apices when requested.
+    if isempty(viewer) || ~isgraphics(viewer) || nargin < 2
+        return;
+    end
     if exist('images.ui.graphics3d.roi.Point', 'class') ~= 8
-        warning('Urchin_Creator:pointRoiUnavailable', ...
-            'images.ui.graphics3d.roi.Point is unavailable in this MATLAB installation.');
+        warning('Urchin_Creator:pointAnnotationUnavailable', ...
+            'images.ui.graphics3d.roi.Point is unavailable. Spike annotations skipped.');
         return;
     end
-
     if ~isfield(urchinStruct, 'Parameters')
-        warning('Urchin_Creator:noParametersStruct', ...
-            'Spike parameter metadata is missing; cannot annotate.');
         return;
     end
-
     params = urchinStruct.Parameters;
-    requiredFields = {'spikeOrientations', 'spikeLengths', 'rCore'};
-    if ~all(isfield(params, requiredFields))
-        warning('Urchin_Creator:missingSpikeData', ...
-            'Spike orientations/lengths are not available in urchin.Parameters.');
-        return;
+    requiredFields = {'rCore', 'spikeLengths', 'spikeOrientations'};
+    for idx = 1:numel(requiredFields)
+        if ~isfield(params, requiredFields{idx}) || isempty(params.(requiredFields{idx}))
+            return;
+        end
     end
-
     orientations = params.spikeOrientations;
-    spikeLengths = params.spikeLengths(:);
-    rCore = params.rCore;
-
-    if isempty(orientations) || isempty(spikeLengths)
-        warning('Urchin_Creator:noSpikeVectors', 'No spike data to annotate.');
+    lengths = params.spikeLengths(:);
+    if size(orientations, 2) ~= 3 || isempty(lengths)
         return;
     end
-
-    if size(orientations, 1) ~= numel(spikeLengths) || size(orientations, 2) ~= 3
-        warning('Urchin_Creator:spikeDimensionMismatch', ...
-            'Spike orientation and length arrays must be N-by-3 and N-by-1 respectively.');
-        return;
+    nSpikes = min(size(orientations,1), numel(lengths));
+    orientations = orientations(1:nSpikes, :);
+    lengths = lengths(1:nSpikes);
+    apexRadius = params.rCore + lengths;
+    apexPositions = orientations .* apexRadius;
+    pointArray = images.ui.graphics3d.roi.Point.empty;
+    pointArray(1, nSpikes) = images.ui.graphics3d.roi.Point;
+    for k = 1:nSpikes
+        label = sprintf('Spike #%d (%.3g nm)', k, lengths(k));
+        pointArray(k) = images.ui.graphics3d.roi.Point( ...
+            Parent=viewer, Label=label, Position=apexPositions(k, :));
     end
-
-    apexOffsets = rCore + spikeLengths;
-    apexPositions = orientations .* apexOffsets;
-    spikeCount = size(orientations, 1);
-    spikePoints = cell(1, spikeCount);
-
-    for idx = 1:spikeCount
-        label = sprintf('Spike #%d (%.3g nm)', idx, spikeLengths(idx));
-        spikePoints{idx} = images.ui.graphics3d.roi.Point(viewer, ...
-            Label=label, Position=apexPositions(idx, :));
-    end
-
-    viewer.Annotations = [spikePoints{:}];
+    viewer.Annotations = pointArray;
 end
 
