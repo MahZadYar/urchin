@@ -1,9 +1,10 @@
-%% urchin v4.2.0 example
+%% urchin v4.3.0 example
 %
 % This script demonstrates the B-Rep workflow introduced in version 4.0, the
 % deterministic defaults restored in patch 4.0.1, the short-spike safeguards added
-% in release 4.1.0 (per-spike tip clamping, spacing-driven cone sampling), and the
-% per-spike base maxima introduced in release 4.2.0.
+% in release 4.1.0 (per-spike tip clamping, spacing-driven cone sampling), the
+% per-spike base maxima introduced in release 4.2.0, and the new spike orientation
+% refinement solver introduced in release 4.3.0.
 
 % Add the source directory to the MATLAB path when running the script directly.
 % addpath(fullfile(fileparts(mfilename("fullpath")), "..", "src"));

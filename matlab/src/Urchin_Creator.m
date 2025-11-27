@@ -9,7 +9,7 @@
 
 %% Geometry and spike layout -------------------------------------------------
 geometry = struct( ...
-    'coreRadius', 1, ...           % Core radius (nm)
+    'rCore', 1, ...           % Core radius (nm)
     'spikeLength', 0.2, ...          % Spike length measured from the core surface (nm)
     'spikeCount', 100, ...         % Number of spikes
     'spikeTip', 0.2, ...           % [] → use default spherical tip diameter (spikeLength/10)
@@ -19,7 +19,7 @@ geometry = struct( ...
 %% Surface quality and refinement controls ----------------------------------
 surfaceControls = struct( ...
     'filletRatio', 0.25, ...   % Toroidal fillet radius relative to seam diameter
-    'resolution', 100, ...    % Dimensionless resolution controlling mesh spacing
+    'resolution', 50, ...    % Dimensionless resolution controlling mesh spacing
     'useFillet', true, ...     % Include toroidal core↔spike fillet (future toggles)
     'includeCore', true ...    % Keep the trimmed core surface in the final mesh
     );
@@ -28,7 +28,9 @@ surfaceControls = struct( ...
 stochastic = struct( ...
     'flucFactor', 1, ...          % Spike length fluctuation factor (0 = no fluctuation)
     'flucMethod', 'uniform', ... % 'uniform' | 'random' | 'gaussian'
-    'distMethod', 'uniform' ...  % 'uniform' | 'random'
+    'distMethod', 'uniform', ...  % 'uniform' | 'random'
+    'refinedOrientation', true, ... % Relax spike orientations using electrostatic settling
+    'refinedOrientationThreshold', 0.1 ... % Minimum angular separation target (degrees)
     );
 
 %% Volume representation controls -------------------------------------------
@@ -106,8 +108,8 @@ end
 %% Invoke urchin -------------------------------------------------------------
 nvPairs = struct2NameValue(urchinParams);
 
-fprintf('Launching urchin with %d spikes, coreRadius=%.3g nm, spikeLength=%.3g nm, spikeTip=%.3g nm, spikeConicality=%.3g...\n', ...
-    urchinParams.spikeCount, urchinParams.coreRadius, urchinParams.spikeLength, urchinParams.spikeTip, urchinParams.spikeConicality);
+fprintf('Launching urchin with %d spikes, rCore=%.3g nm, spikeLength=%.3g nm, spikeTip=%.3g nm, spikeConicality=%.3g...\n', ...
+    urchinParams.spikeCount, urchinParams.rCore, urchinParams.spikeLength, urchinParams.spikeTip, urchinParams.spikeConicality);
 urchinStruct = urchin(nvPairs{:});
 
 needDiagnostics = visualize.printDiagnostics || ...
@@ -274,70 +276,6 @@ if ~isempty(savedFiles)
 end
 
 %% Helper functions ---------------------------------------------------------
-function out = mergeStructs(varargin)
-%MERGESTRUCTS Merge multiple scalar structs into one.
-    out = struct();
-    for k = 1:nargin
-        s = varargin{k};
-        if isempty(s)
-            continue;
-        end
-        fields = fieldnames(s);
-        for i = 1:numel(fields)
-            out.(fields{i}) = s.(fields{i});
-        end
-    end
-end
-
-function args = struct2NameValue(s)
-%STRUCT2NAMEVALUE Convert struct to name-value cell array, skipping empties.
-    f = fieldnames(s);
-    tmp = cell(1, numel(f) * 2);
-    idx = 0;
-    for i = 1:numel(f)
-        value = s.(f{i});
-        if isempty(value)
-            continue;
-        end
-        idx = idx + 1;
-        tmp{2*idx-1} = f{i};
-        tmp{2*idx} = value;
-    end
-    args = tmp(1:2*idx);
-end
-
-function label = autoLabel(p)
-%AUTOLABEL Build a descriptive slug for exports based on key parameters.
-    tokens = [ ...
-        "urchin"; ...
-    "core" + valueToken(p.coreRadius); ...
-    "len" + valueToken(p.spikeLength); ...
-    "count" + valueToken(p.spikeCount); ...
-    "tip" + valueToken(p.spikeTip); ...
-    "conicity" + valueToken(p.spikeConicality); ...
-    "fluc" + valueToken(p.flucFactor); ...
-    "dist" + valueToken(p.distMethod); ...
-    "flucMethod" + valueToken(p.flucMethod) ...
-        ];
-    label = lower(join(tokens, "_"));
-    label = regexprep(label, '[_]+', '_');
-    label = regexprep(label, '[^a-z0-9_]', '');
-    label = char(label);
-end
-
-function tok = valueToken(value)
-%VALUETOKEN Convert numeric/logical/string values to safe filename tokens.
-    if isnumeric(value)
-        tok = regexprep(sprintf('%.3g', double(value)), '[^0-9A-Za-z]', '');
-        if isempty(tok)
-            tok = "0";
-        else
-            tok = string(tok);
-        end
-    elseif islogical(value)
-        tok = string(double(value));
-    else
-        tok = regexprep(lower(string(value)), '[^a-z0-9]', '');
-    end
-end
+% Utility helpers are now provided as standalone functions:
+%   mergeStructs.m, struct2NameValue.m, autoLabel.m, valueToken.m
 

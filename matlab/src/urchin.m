@@ -24,25 +24,27 @@ function urchin = urchin(varargin)
 %         criterion (boundary/distance/curvature/hybrid). Stored in
 %         mesh.VolumeOctree for sparse workflows; optional densification.
 % Usage:
-%   urchinStruct = urchin('coreRadius',30,'spikeLength',15,'spikeCount',50,'spikeTip',5);
-%   urchinStruct = urchin('coreRadius',25,'spikeLength',10,'spikeCount',75);
+%   urchinStruct = urchin('rCore',30,'spikeLength',15,'spikeCount',50,'spikeTip',5);
+%   urchinStruct = urchin('rCore',25,'spikeLength',10,'spikeCount',75);
 %   diagnostics = meshDiagnostics(urchinStruct.SurfaceMesh);
 %   fprintf('Watertight: %d\n', diagnostics.IsWatertight);
 %
 % Inputs (name-value):
-%   coreRadius   Core radius (nm). Default 1
+%   rCore   Core radius (nm). Default 1
 %   spikeLength  Spike length from core surface (nm). Default 1
 %   spikeCount   Number of spikes. Default 100
 %   spikeTip     Diameter of the spherical tip cap (nm).
 %                Defaults to spikeLength/10 when omitted.
 %   spikeConicality Conicality [-1..1]. -1 collapses base, 0=cylinder, 1=widest base.
 %   resolution   Dimensionless mesh resolution (default 100). Smallest feature
-%                length is ~2*(coreRadius+spikeLength)/resolution.
+%                length is ~2*(rCore+spikeLength)/resolution.
 %   useFillet    Enable toroidal fillet patch. Default true (fillet radius
 %                defaults to spikeTip/2 and is clamped relative to base radius)
 %   flucFactor   Spike length fluctuation factor [0..1]. Default 0.5
 %   flucMethod   'uniform' (Sobol) or 'random' (seeded by spikeCount). Default 'uniform'
 %   distMethod   'uniform' (Fibonacci-like) or 'random' (seeded by spikeCount). Default 'uniform'
+%   refinedOrientation Toggle iterative Coulomb-like relaxation (default true)
+%   refinedOrientationThreshold Minimum allowable angular separation in degrees (default 0.1)
 %
 % Volume (dense):
 %   genVolume    If true, generate dense voxel mask. Default false
@@ -74,7 +76,7 @@ function urchin = urchin(varargin)
 
     %% 1) Input Parser
     p = inputParser;
-    addParameter(p, 'coreRadius', 1, @(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
+    addParameter(p, 'rCore', 1, @(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
     addParameter(p, 'spikeLength', 1, @(x)validateattributes(x,{'numeric'},{'scalar','positive'}));
     addParameter(p, 'spikeCount', 100, @(x)validateattributes(x,{'numeric'},{'scalar','integer','>=',0}));
     addParameter(p, 'spikeTip', [],  @(x)validateattributes(x,{'numeric'},{'scalar','nonnegative'}));
@@ -87,6 +89,8 @@ function urchin = urchin(varargin)
     addParameter(p, 'flucFactor', 0.5, @(x)validateattributes(x,{'numeric'},{'scalar','>=',0,'<=',1}));
     addParameter(p, 'flucMethod', 'uniform', @(x)any(validatestring(x,{'uniform','random','gaussian'})));
     addParameter(p, 'distMethod', 'uniform', @(x)any(validatestring(x,{'uniform','random'})));
+    addParameter(p, 'refinedOrientation', true, @(x)islogical(x) && isscalar(x));
+    addParameter(p, 'refinedOrientationThreshold', 0.1, @(x)validateattributes(x,{'numeric'},{'scalar','>=',0,'<=',180}));
     % Optional volume representation controls (voxel grid from mesh)
     addParameter(p, 'genVolume', false, @(x)islogical(x) && isscalar(x));
     addParameter(p, 'volRes', 128, @(x)validateattributes(x,{'numeric'},{'scalar','integer','>=',16}));
@@ -101,7 +105,7 @@ function urchin = urchin(varargin)
     parse(p, varargin{:});
 
     % Assign parsed inputs to variables
-    coreRadius = p.Results.coreRadius;
+    rCore = p.Results.rCore;
     spikeLength = p.Results.spikeLength;
     spikeCount = p.Results.spikeCount;
     tipDiameter = p.Results.spikeTip;
@@ -114,6 +118,8 @@ function urchin = urchin(varargin)
     flucFactor  = p.Results.flucFactor;
     flucMethod  = p.Results.flucMethod;
     distMethod  = p.Results.distMethod;
+    refinedOrientation = p.Results.refinedOrientation;
+    refinedOrientationThresholdDeg = p.Results.refinedOrientationThreshold;
     genVolume   = p.Results.genVolume;
     volRes      = p.Results.volRes;
     volPadding  = p.Results.volPadding;
@@ -127,45 +133,47 @@ function urchin = urchin(varargin)
     fprintf('Starting B-Rep Urchin Generation...\n');
     tic;
 
-    %% 2) Initial Geometric Calculations & Spike Distribution
+    %% 2) Initial Geometric Calculations
 
-    scale = 2 * (coreRadius + spikeLength); % urchin scale for normalization
-    min_spacing = max(1e-9,  scale/resolution);
-    core_spacing_factor = 2.0;
-    azimuth_spacing_factor = 1.2;
-    axial_spacing_factor = 1.0;
-    cap_spacing_factor = 1.0;
-    collapse_st_tol = min_spacing;
-    conicalityFlatThreshold = 0.05;
+    scale = 2 * (rCore + spikeLength); % urchin scale for normalization
+    minSpacing = max(1e-9,  scale/resolution);
+    coreSpacingFactor = 2.0;
+    azimuthSpacingFactor = 1.2;
+    axialSpacingFactor = 1.0;
+    capSpacingFactor = 1.0;
+    collapseSpacingTol = minSpacing;
+    % conicalityFlatThreshold = 0.05;
     conicalityEffective = spikeConicality;
-    force_cylinder = false;
-    pending_pointy_tip = false;
+    % forceCylinder = false;
+    PointyTip = false;
+
     % Tip sphere diameter (default: spikeLength/10 unless specified)
     if isempty(tipDiameter)
         tipDiameter = spikeLength / 10;
     end
-    tipDiameter = max(tipDiameter, 0);
-    tipSphereRadius = tipDiameter / 2;
 
-    if tipDiameter <= collapse_st_tol
-        tipDiameter = collapse_st_tol;
-        tipSphereRadius = tipDiameter / 2;
+    if tipDiameter <= collapseSpacingTol & tipDiameter > 0
+        tipDiameter = collapseSpacingTol;
         if conicalityEffective < 0
             % negative conicality handled later via tapered base rule
-        elseif conicalityEffective <= conicalityFlatThreshold
             conicalityEffective = 0;
-            force_cylinder = true;
-        else
-            pending_pointy_tip = true;
         end
+    elseif tipDiameter == 0
+        % Only collapse tip if explicitly requested
+        PointyTip = true;
     end
 
+    rTip = tipDiameter / 2;
 
-    % Note: Seam axial location and cone tip are computed per-spike (fluctuations)
+    forceCylinder = abs(conicalityEffective) <= 1e-12;
+    pendingPointyTip = PointyTip;
 
-    % Spike height unused explicitly; seam defined at z=coreRadius+spikeLength
+    tipCollapseTol = max(0.5 * minSpacing, 1e-9);
+    if forceCylinder
+        tipCollapseTol = min(tipCollapseTol, 0.25 * minSpacing);
+    end
 
-    % Distribute spike orientations (uniform Fibonacci or random)
+    %% Spike Orientations
     switch distMethod
         case 'uniform'
             % Golden spiral distribution across sphere via (theta,phi)
@@ -173,16 +181,19 @@ function urchin = urchin(varargin)
             i = (1:spikeCount)';
             theta = acos(1 - 2 .* i ./ (spikeCount + 1));
             phi   = mod(2 * pi * i / Phi, 2 * pi);
-            spike_orientations = [sin(theta).*cos(phi), sin(theta).*sin(phi), cos(theta)];
         case 'random'
             rng(spikeCount,'twister');
             phi = 2 * pi * rand(spikeCount, 1);
             cosTheta = 2 * rand(spikeCount, 1) - 1;
             theta = acos(cosTheta);
-            spike_orientations = [sin(theta).*cos(phi), sin(theta).*sin(phi), cos(theta)];
     end
 
-    % Spike length fluctuations
+    spikeOrientations = [sin(theta).*cos(phi), sin(theta).*sin(phi), cos(theta)]; % #KeyParameter
+
+    if refinedOrientation && spikeCount > 1
+        spikeOrientations = refineSpikeOrientations(spikeOrientations, refinedOrientationThresholdDeg);
+    end
+    %% Spike length fluctuations
     switch flucMethod
         case 'uniform'
             flucs = net(sobolset(1), spikeCount);   % values in ~[0,1]
@@ -198,219 +209,253 @@ function urchin = urchin(varargin)
     flucs = flucs / mean(flucs);   % normalize to mean on 1
     flucs = flucs -1;               % shift to [-1,∞) with mean 0
     flucs = flucFactor * spikeLength * flucs;        % scale to full spike length range [-flucFactor*spikeLength, +∞) with mean 0
+    
+    spikeLengths = spikeLength + flucs;
+    spikeLengths = max(spikeLengths, 0);
+    zTipApexs = rCore + spikeLengths; % #KeyParameter
+    
 
-    % =====================================================================
-    % New maximum base radius rationale (non-overlapping spherical footprints)
-    % ---------------------------------------------------------------------
-    % Previous approach: equal-area spherical caps -> could yield overlapping
-    % circular footprints on the core sphere because sum of max circle areas
-    % (π r_base^2 each) is strictly less than total sphere area, so area-based
-    % allocation is not a tight packing constraint.
-    % New approach: find the smallest angular separation θ_min between any two
-    % spike orientation vectors (after distribution). Circular footprints on
-    % the core are spherical discs with angular (geodesic) radius α. Two discs
-    % are just tangent when 2α = θ_sep. To avoid overlap for all pairs we set
-    % α_max = θ_min / 2. The Euclidean (chord) radius of that footprint circle
-    % on a sphere of radius coreRadius is:
-    %   r_base_max = coreRadius * sin(α_max)
-    % This guarantees non-overlapping base circles (they may be tangent for at
-    % least one closest pair) while being as large as analytically possible
-    % under the given orientation set.
+    %% Spike maximum base radii (non-overlapping cones & tangency limits)
     if spikeCount == 0
-        theta_min_per_spike = zeros(0,1);
+        thetaMins = zeros(0,1);
     elseif spikeCount == 1
-        theta_min_per_spike = pi;
+        thetaMins = pi;
     else
         % Compute maximum cosine (excluding self) to find minimal angular sep per spike
-        Ddot = spike_orientations * spike_orientations.'; % spikeCount x spikeCount dot products
+        Ddot = spikeOrientations * spikeOrientations.'; % spikeCount x spikeCount dot products
         Ddot(1:spikeCount+1:end) = -Inf; % ignore diagonal
         maxDotPerSpike = max(Ddot, [], 2);
         maxDotPerSpike(~isfinite(maxDotPerSpike)) = -1;
         maxDotPerSpike = min(1, max(-1, maxDotPerSpike));
-        theta_min_per_spike = acos(maxDotPerSpike); % smallest angle between each spike and its nearest neighbour
+        thetaMins = acos(maxDotPerSpike); % smallest angle between each spike and its nearest neighbour
     end
 
-    if isempty(theta_min_per_spike)
-        theta_min_global = pi;
+    if isempty(thetaMins)
+        thetaMinGlobal = pi;
     else
-        theta_min_global = min(theta_min_per_spike);
+        thetaMinGlobal = min(thetaMins);
     end
 
-    alpha_base_max_per_spike = 0.5 * theta_min_per_spike;           % tangent half-angle per spike
+    alphaBaseMaxSpikes = 0.5 * thetaMins;           % tangent half-angle per spike
 
-    theta_ratio = coreRadius / (coreRadius + spikeLength + tipSphereRadius);
-    theta_ratio = min(1, max(-1, theta_ratio));
-    theta_max = acos(theta_ratio);
-    alpha_base_max_per_spike = min(alpha_base_max_per_spike, theta_max);      % clamp to tangent angle per spike
+    alphaBaseMaxTangentRatios = (rCore - rTip) / (rCore + spikeLengths - rTip);
+    alphaBaseMaxTangentRatios = min(1, max(-1, alphaBaseMaxTangentRatios));
+    alphaBaseMaxTangents = acos(alphaBaseMaxTangentRatios);
 
-    r_base_max_per_spike = coreRadius * sin(alpha_base_max_per_spike);      % maximal non-overlapping base radius per spike
-    if ~isempty(r_base_max_per_spike)
-        r_base_max_per_spike = min(r_base_max_per_spike, 0.999 * coreRadius);
-        r_base_max_per_spike = max(r_base_max_per_spike, 1e-9);
+    alphaBaseMaxs = min(alphaBaseMaxSpikes, alphaBaseMaxTangents);      % clamp to tangent angle per spike  % #KeyParameter
+
+    rBaseMaxs = rCore * sin(alphaBaseMaxs);      % maximal non-overlapping base radius per spike #KeyParameter
+
+    if ~isempty(rBaseMaxs)
+        rBaseMaxs = min(rBaseMaxs, rCore - 0.5 * minSpacing);
+        rBaseMaxs = max(rBaseMaxs, minSpacing);
     end
 
-    r_base_max = coreRadius * sin(0.5 * theta_min_global);
-    r_base_max = min(r_base_max, 0.999 * coreRadius);
-    r_base_max = max(r_base_max, 1e-9);
+    % rBaseMax = rCore * sin(0.5 * thetaMinGlobal);
+    % rBaseMax = min(rBaseMax, rCore - 0.5 * minSpacing);
+    % rBaseMax = max(rBaseMax, minSpacing);
 
+    %% Spike tip radii and centers
+    rTips = ones(spikeCount,1) * rTip;
+    rTipMaxs = zTipApexs./(1+1./sin(alphaBaseMaxs)); % max tip radius for tangency
+    rTips = min(rTipMaxs, rTips);  % #KeyParameter
+    zTipCenters = zTipApexs - rTips;  % #KeyParameter
+    
+    % tipCollapseTol = max(0.5 * minSpacing, 1e-9);
+    % if forceCylinder
+    %     tipCollapseTol = min(tipCollapseTol, 0.25 * minSpacing);
+    % end
+    % spikeTipEffectiveDiameter = rTip*2;
+    % spikeTipSphereRadius = rTip;
 
-    base_collapse_tol = max(0.5 * min_spacing, 1e-9);
-    if force_cylinder
-        base_collapse_tol = min(base_collapse_tol, 0.25 * min_spacing);
+    %% Spike base radii and centers
+    baseCollapseTol = 0.5 * minSpacing; % collapse tolerance for base radius
+    if forceCylinder
+        baseCollapseTol = min(baseCollapseTol, 0.25 * minSpacing);
     end
 
-    tip_collapse_tol = max(0.5 * min_spacing, 1e-9);
-    if force_cylinder
-        tip_collapse_tol = min(tip_collapse_tol, 0.25 * min_spacing);
+    if conicalityEffective >= 0
+        % Positive conicality: linear interpolation between tip and max base
+        rBases = rTips + conicalityEffective * (rBaseMaxs - rTips);   % #KeyParameter
+    else
+        % Negative conicality: tapered base rule (base radius < tip radius)
+        rBases = (1 + conicalityEffective) * rTips; % linear tapering to zero at conicality=-1
     end
 
-    spikeTipEffectiveDiameter = tipDiameter;
-    spikeTipSphereRadius = tipSphereRadius;
+    rBases = min(rBases, rBaseMaxs);
+    rBases = max(rBases, 0);
+    % collapseBase = rBases <= baseCollapseTol;
+    % rBases(collapseBase) = 0;
 
-    % Points container not used; direct append to V
+    alphaBases = asin(rBases/rCore);  % #KeyParameter
+    
+    zBases = sqrt(max(0, rCore^2 - rBases.^2));  % #KeyParameter
 
+    %% Tip Seam Radii and centers
+    [zTipSeams, rTipSeams, alphaCones] = solveConeSeams(rBases, rTips, zBases, zTipCenters);   % #KeyParameter
+
+    %% more preparations before mesh generation if needed?
+    
+    % e.g. number of rings/segments along seams and tip caps and number of radial segments, etc.
+
+    %% 3) Build core sphere
     % Core sphere subdivision target driven purely by resolution
-    target_core_spacing = core_spacing_factor * min_spacing;
-    target_core_spacing = max(target_core_spacing, 1e-9);
-    core_surface_area = 4 * pi * coreRadius^2;
-    target_vertices = max(12, ceil(core_surface_area / (target_core_spacing^2)));
-    if target_vertices <= 12
-        core_subdiv = 0;
+    targetCoreSpacing = coreSpacingFactor * minSpacing;
+    targetCoreSpacing = max(targetCoreSpacing, 1e-9*scale);
+    coreSurfaceArea = 4 * pi * rCore^2;
+    targetVertices = max(12, ceil(coreSurfaceArea / (targetCoreSpacing^2)));
+    if targetVertices <= 12
+        coreSubdiv = 0;
     else
-        core_subdiv = ceil(0.5 * log2((target_vertices - 2) / 10));
-        core_subdiv = max(core_subdiv, 0);
+        coreSubdiv = ceil(0.5 * log2((targetVertices - 2) / 10));
+        coreSubdiv = max(coreSubdiv, 0);
     end
-
-    %% 3) Build full core sphere FIRST (no trimming yet)
     V = zeros(0,3); F = zeros(0,3);
     if includeCore
-        core_subdiv = max(floor(core_subdiv), 0);
-    [core_V_full, core_F_full] = triangulate_icosphere(coreRadius, core_subdiv);
-        [V, core_idx] = append_vertices(V, core_V_full); % core vertices global indices
-        core_F_current = core_F_full + core_idx(1) - 1;   % active core faces (global indices)
-    core_dirs_full = core_V_full / coreRadius;                % unit directions for initial removal test
-        core_mask = false(size(V,1),1);
-        core_mask(core_idx) = true;
+        coreSubdiv = max(floor(coreSubdiv), 0);
+        [coreVFull, coreFFull] = triangulate_icosphere(rCore, coreSubdiv);
+        [V, coreIdx] = append_vertices(V, coreVFull); % core vertices global indices
+        coreFCurrent = coreFFull + coreIdx(1) - 1;   % active core faces (global indices)
+        coreDirsFull = coreVFull / rCore;                % unit directions for initial removal test
+        coreMask = false(size(V,1),1);
+        coreMask(coreIdx) = true;
     else
-        core_idx = zeros(0,1);
-        core_F_current = zeros(0,3);
-        core_dirs_full = zeros(0,3);
-        core_mask = false(0,1);
+        coreIdx = zeros(0,1);
+        coreFCurrent = zeros(0,3);
+        coreDirsFull = zeros(0,3);
+        coreMask = false(0,1);
     end
-
+    %% 4) Generate spikes one-by-one with per-spike core trimming & stitching
+    fprintf('Generating & stitching %d spikes...\n', spikeCount);
     minBaseRadiusMetric = Inf;
     minSeamRadiusMetric = Inf;
     tipCollapsedAll = true;
-    produced_spike_count = 0;
+    producedSpikeCount = 0;
+    seamIndices = cell(spikeCount,1);
 
-    %% 4) Generate spikes one-by-one WITH per-spike core trimming & stitching
-    fprintf('Generating & stitching %d spikes...\n', spikeCount);
-    seam_indices = cell(spikeCount,1);
+    if isempty(rTips)
+        spikeTipSphereRadius = 0;
+    else
+        finiteTips = rTips(isfinite(rTips));
+        if isempty(finiteTips)
+            spikeTipSphereRadius = 0;
+        else
+            spikeTipSphereRadius = max(finiteTips);
+        end
+    end
+    spikeTipEffectiveDiameter = 2 * spikeTipSphereRadius;
     for i = 1:spikeCount
-        orientation = spike_orientations(i, :);
+        orientation = spikeOrientations(i, :);
         % Local orthonormal frame:
         %  - orientation: spike axis (unit vector)
         %  - u, v: span orthogonal plane (used for circular rings)
         [u, v] = plane_vectors(orientation);
 
-        core_loop = [];
-        seam_indices{i} = [];
+        coreLoop = [];
+        seamIndices{i} = [];
 
-        spike_length_i = max(spikeLength + flucs(i), 0);
-        tipSphereRadius_i = max(0, tipSphereRadius);
-        if tipSphereRadius_i > 0
-            tipSphereRadius_i = min(tipSphereRadius_i, spike_length_i);
+        spikeLength = spikeLengths(i);
+        if ~isfinite(spikeLength)
+            spikeLength = 0;
         end
-        z_apex_i = coreRadius + spike_length_i;
-        z_tip_center_i = z_apex_i - tipSphereRadius_i;
+        spikeLength = max(spikeLength, 0);
 
-        if isempty(r_base_max_per_spike)
-            r_base_max_i = r_base_max;
-        else
-            r_base_max_i = r_base_max_per_spike(i);
+        rTip = rTips(i);
+        if ~isfinite(rTip)
+            rTip = 0;
         end
+        rTip = max(0, min(rTip, spikeLength));
 
-        [r_base_nominal_i, r_tip_nominal_i, alpha_nominal_default_i, z_seam_nominal_default_i] = compute_nominal_spike_profile( ...
-            coreRadius, spike_length_i, tipSphereRadius_i, conicalityEffective, r_base_max_i, scale);
-
-        r_base_i = r_base_nominal_i;
-        min_base_radius = 0.5 * min_spacing;
-        if tipSphereRadius_i > 0
-            tangent_limit = tangent_base_limit(coreRadius, tipSphereRadius_i, spike_length_i);
-            if tangent_limit > 1e-9
-                r_base_i = min(r_base_i, tangent_limit);
-            else
-                fallback_base = min(r_base_max_i, max(min_base_radius, 1e-9));
-                if fallback_base > 0
-                    r_base_i = max(r_base_i, fallback_base);
-                end
-            end
-        end
-        r_base_i = min(r_base_i, r_base_max_i);
-        r_base_i = max(r_base_i, 0);
-        if r_base_i > 0 && r_base_i < min_base_radius
-            r_base_i = min(min_base_radius, max(r_base_i, r_base_max_i));
-        end
-        if r_base_i >= coreRadius
-            r_base_i = 0.999 * coreRadius;
+        zTipCenter = zTipCenters(i);
+        if ~isfinite(zTipCenter)
+            zTipCenter = rCore + spikeLength - rTip;
         end
 
-        collapse_base_i = r_base_i <= 1e-9;
-        if collapse_base_i
-            r_base_i = 0;
+        if rTip > spikeTipSphereRadius
+            spikeTipSphereRadius = rTip;
+            spikeTipEffectiveDiameter = 2 * spikeTipSphereRadius;
         end
 
-        cos_cutoff_i = 1;
-        if ~collapse_base_i && coreRadius > 0
-            ratio = min(1, max(r_base_i / coreRadius, 0));
-            cos_cutoff_i = sqrt(max(0, 1 - ratio.^2));
+        rBaseMax = rBaseMaxs(i);
+        if ~isfinite(rBaseMax)
+            rBaseMax = 0;
+        end
+        rBaseMax = max(rBaseMax, 0);
+
+        rBase = rBases(i);
+        if ~isfinite(rBase)
+            rBase = 0;
+        end
+        rBase = max(0, min(rBase, rBaseMax));
+
+        minBaseRadius = baseCollapseTol;
+        if rBase > 0 && rBase < minBaseRadius
+            rBase = min(minBaseRadius, max(rBase, rBaseMax));
+        end
+        if rBase >= rCore
+            rBase = 0.999 * rCore;
         end
 
-        z_base_i = sqrt(max(1e-12, coreRadius^2 - r_base_i^2));
+        collapseBaseI = rBase <= baseCollapseTol;
+        if collapseBaseI
+            rBase = 0;
+        end
 
-        if z_base_i < min_spacing
+        cosCutoffI = 1;
+        if ~collapseBaseI && rCore > 0
+            ratio = min(1, max(rBase / rCore, 0));
+            cosCutoffI = sqrt(max(0, 1 - ratio.^2));
+        end
+
+        zBase = zBases(i);
+        if ~isfinite(zBase)
+            zBase = sqrt(max(0, rCore^2 - rBase^2));
+        end
+        zBase = max(zBase, 0);
+
+        if zBase < minSpacing
             tipCollapsedAll = false;
             continue;
         end
 
-        if includeCore && ~collapse_base_i
-            core_idx = find(core_mask);
-            if isempty(core_idx)
-                core_dirs_full = zeros(0,3);
+        if includeCore && ~collapseBaseI
+            coreIdx = find(coreMask);
+            if isempty(coreIdx)
+                coreDirsFull = zeros(0,3);
             else
-                dirs = V(core_idx,:);
+                dirs = V(coreIdx,:);
                 norms = vecnorm(dirs,2,2);
                 norms(norms < 1e-12) = 1;
-                core_dirs_full = dirs ./ norms;
+                coreDirsFull = dirs ./ norms;
             end
 
-            core_dot = core_dirs_full * orientation';
-            newRemoveMask = core_dot > cos_cutoff_i + 1e-12;
-            if ~any(newRemoveMask) && ~isempty(core_idx)
-                [~, fallbackPos] = max(core_dot);
+            coreDot = coreDirsFull * orientation';
+            newRemoveMask = coreDot > cosCutoffI + 1e-12;
+            if ~any(newRemoveMask) && ~isempty(coreIdx)
+                [~, fallbackPos] = max(coreDot);
                 if ~isnan(fallbackPos) && fallbackPos >= 1 && fallbackPos <= numel(newRemoveMask)
                     newRemoveMask(fallbackPos) = true;
                 end
             end
             if any(newRemoveMask)
-                verts_remove_global = core_idx(newRemoveMask);
-                core_mask(verts_remove_global) = false;
-                faceRemoveMask = any(ismember(core_F_current, verts_remove_global), 2);
-                removedFaces = core_F_current(faceRemoveMask, :);
-                core_F_current(faceRemoveMask, :) = [];
+                vertsRemoveGlobal = coreIdx(newRemoveMask);
+                coreMask(vertsRemoveGlobal) = false;
+                faceRemoveMask = any(ismember(coreFCurrent, vertsRemoveGlobal), 2);
+                removedFaces = coreFCurrent(faceRemoveMask, :);
+                coreFCurrent(faceRemoveMask, :) = [];
 
-                verts_from_removedFaces = unique(removedFaces(:));
-                core_loop = setdiff(verts_from_removedFaces, verts_remove_global);
+                vertsFromRemovedFaces = unique(removedFaces(:));
+                coreLoop = setdiff(vertsFromRemovedFaces, vertsRemoveGlobal);
 
                 candidates = {};
-                if numel(core_loop) >= 3
-                    candidates{end+1} = core_loop(:)'; %#ok<AGROW>
+                if numel(coreLoop) >= 3
+                    candidates{end+1} = coreLoop(:)'; %#ok<AGROW>
                 end
-                if ~isempty(verts_remove_global)
+                if ~isempty(vertsRemoveGlobal)
                     for j = 1:i-1
-                        ring = seam_indices{j};
+                        ring = seamIndices{j};
                         if numel(ring) < 3, continue; end
-                        if all(ismember(ring, verts_remove_global))
+                        if all(ismember(ring, vertsRemoveGlobal))
                             candidates{end+1} = ring(:)'; %#ok<AGROW>
                         end
                     end
@@ -429,237 +474,247 @@ function urchin = urchin(varargin)
                             bestLoop = loop;
                         end
                     end
-                    core_loop = bestLoop;
+                    coreLoop = bestLoop;
                 end
             end
         end
 
-        seam_base_center = z_base_i * orientation;
-        base_segments_effective = 3;
-        if collapse_base_i
-            [V, seam_indices{i}] = append_vertices(V, seam_base_center);
+        seamBaseCenter = zBase * orientation;
+        baseSegmentsEffective = 3;
+        if collapseBaseI
+            [V, seamIndices{i}] = append_vertices(V, seamBaseCenter);
         else
-            base_segments_i = ring_segment_count(r_base_i, min_spacing, azimuth_spacing_factor);
-            if force_cylinder
-                base_segments_i = max(base_segments_i, 3);
+            baseSegmentsI = ring_segment_count(rBase, minSpacing, azimuthSpacingFactor);
+            if forceCylinder
+                baseSegmentsI = max(baseSegmentsI, 3);
             end
-            base_segments_effective = max(3, base_segments_i);
-            angles_base = circle_angles(base_segments_effective);
-            seam_base_ring = seam_ring_points(seam_base_center, u, v, r_base_i, angles_base);
-            [V, seam_indices{i}] = append_vertices(V, seam_base_ring);
+            baseSegmentsEffective = max(3, baseSegmentsI);
+            anglesBase = circle_angles(baseSegmentsEffective);
+            seamBaseRing = seam_ring_points(seamBaseCenter, u, v, rBase, anglesBase);
+            [V, seamIndices{i}] = append_vertices(V, seamBaseRing);
             if includeCore
-                core_mask(seam_indices{i}) = true;
+                coreMask(seamIndices{i}) = true;
             end
 
-            if includeCore && numel(core_loop) >= 3
-                seam_ring = seam_indices{i}(:)';
-                new_bridge_faces = bridge_rings_idx(core_loop, seam_ring, V, orientation);
-                core_F_current = [core_F_current; new_bridge_faces]; %#ok<AGROW>
-                core_mask(core_loop) = true;
+            if includeCore && numel(coreLoop) >= 3
+                seamRing = seamIndices{i}(:)';
+                newBridgeFaces = bridge_rings_idx(coreLoop, seamRing, V, orientation);
+                coreFCurrent = [coreFCurrent; newBridgeFaces]; %#ok<AGROW>
+                coreMask(coreLoop) = true;
             end
 
             if includeCore
-                core_idx = find(core_mask);
-                if isempty(core_idx)
-                    core_dirs_full = zeros(0,3);
+                coreIdx = find(coreMask);
+                if isempty(coreIdx)
+                    coreDirsFull = zeros(0,3);
                 else
-                    dirs = V(core_idx,:);
+                    dirs = V(coreIdx,:);
                     norms = vecnorm(dirs,2,2);
                     norms(norms < 1e-12) = 1;
-                    core_dirs_full = dirs ./ norms;
+                    coreDirsFull = dirs ./ norms;
                 end
             end
         end
 
-        if ~includeCore && ~collapse_base_i
-            base_center = seam_base_center;
-            [V, base_center_idx] = append_vertices(V, base_center);
-            base_faces = connect_ring_to_apex(seam_indices{i}, base_center_idx);
-            if ~isempty(base_faces)
-                tri = base_faces(1,:);
+        if ~includeCore && ~collapseBaseI
+            baseCenter = seamBaseCenter;
+            [V, baseCenterIdx] = append_vertices(V, baseCenter);
+            baseFaces = connect_ring_to_apex(seamIndices{i}, baseCenterIdx);
+            if ~isempty(baseFaces)
+                tri = baseFaces(1,:);
                 v1 = V(tri(1),:);
                 v2 = V(tri(2),:);
                 v3 = V(tri(3),:);
-                base_normal = cross(v2 - v1, v3 - v1);
-                if dot(base_normal, -orientation) < 0
-                    base_faces = base_faces(:, [1 3 2]);
+                baseNormal = cross(v2 - v1, v3 - v1);
+                if dot(baseNormal, -orientation) < 0
+                    baseFaces = baseFaces(:, [1 3 2]);
                 end
             end
-            F = [F; base_faces]; %#ok<AGROW>
+            F = [F; baseFaces]; %#ok<AGROW>
         end
 
-        force_pointy_tip_i = pending_pointy_tip && ~collapse_base_i && (r_base_i > 2 * min_spacing);
-        if force_cylinder
-            force_pointy_tip_i = false;
+        forcePointyTipI = pendingPointyTip && ~collapseBaseI && (rBase > 2 * minSpacing);
+        if forceCylinder
+            forcePointyTipI = false;
         end
 
-    minimal_seam = false;
-    alpha_i = alpha_nominal_default_i;
-    z_seam_i = z_seam_nominal_default_i;
-    seam_radius_i = r_tip_nominal_i;
+        minimalSeam = false;
+        alphaCone = alphaCones(i);
+        if ~isfinite(alphaCone)
+            alphaCone = alphaBases(i);
+        end
+        alphaCone = max(1e-6, alphaCone);
 
-        if tipSphereRadius_i > 0
-            [seam_candidate, alpha_candidate, z_seam_candidate, tangentValid_i] = solve_tip_tangent(max(r_base_i, 0), coreRadius, z_tip_center_i, tipSphereRadius_i);
-            if tangentValid_i
-                seam_radius_i = seam_candidate;
-                alpha_i = alpha_candidate;
-                z_seam_i = z_seam_candidate;
-            else
-                seam_radius_i = min(max(min(r_base_i, tipSphereRadius_i), 0), tipSphereRadius_i);
-                ratio = min(1, max(seam_radius_i / max(tipSphereRadius_i, 1e-12), 0));
-                alpha_i = max(1e-6, asin(ratio));
-                z_seam_i = max(z_base_i + 1e-6, z_tip_center_i + tipSphereRadius_i * cos(alpha_i));
-            end
+        zTipSeam = zTipSeams(i);
+        if ~isfinite(zTipSeam)
+            zTipSeam = zTipCenter + rTip * cos(alphaCone);
+        end
 
-            if z_seam_i <= z_base_i + 1e-9
-                seam_radius_i = min(max(min(r_base_i, tipSphereRadius_i), 0), tipSphereRadius_i);
-                ratio = min(1, max(seam_radius_i / max(tipSphereRadius_i, 1e-12), 0));
-                alpha_i = max(1e-6, asin(ratio));
-                z_seam_i = max(z_base_i + 1e-6, z_tip_center_i + tipSphereRadius_i * cos(alpha_i));
-            end
+        rTipSeam = rTipSeams(i);
+        if ~isfinite(rTipSeam)
+            rTipSeam = min(max(min(rBase, rTip), 0), rTip);
+        end
+        rTipSeam = max(rTipSeam, 0);
 
-            if seam_radius_i > 0 && (2 * seam_radius_i < min_spacing)
-                minimal_seam = true;
-                desired_radius = min(max(min_spacing / 2, seam_radius_i), tipSphereRadius_i);
-                seam_radius_i = desired_radius;
-                ratio = min(1, max(seam_radius_i / max(tipSphereRadius_i, 1e-12), 0));
-                alpha_i = max(1e-6, asin(ratio));
-                z_seam_i = max(z_base_i + 1e-6, z_tip_center_i + tipSphereRadius_i * cos(alpha_i));
-            end
+        if rTip <= 0
+            rTipSeam = 0;
+            alphaCone = pi/2;
+            zTipSeam = max(zBase + 1e-6, zTipCenter);
         else
-            seam_radius_i = 0;
-            alpha_i = pi/2;
-            z_seam_i = max(z_base_i + 1e-6, z_tip_center_i);
+            % Re-solve the seam with the sanitized radii to preserve tangency.
+            if ~collapseBaseI && rBase > 0
+                try
+                    [zTipSeamLoc, rTipSeamLoc, alphaConeLoc] = solveConeSeams(rBase, rTip, zBase, zTipCenter);
+                catch
+                    zTipSeamLoc = NaN;
+                    rTipSeamLoc = NaN;
+                    alphaConeLoc = NaN;
+                end
+                if isfinite(zTipSeamLoc) && isfinite(rTipSeamLoc) && isfinite(alphaConeLoc)
+                    zTipSeam = zTipSeamLoc;
+                    rTipSeam = rTipSeamLoc;
+                    alphaCone = alphaConeLoc;
+                end
+            end
+
+            rTipSeam = min(rTipSeam, min(rBase, rTip));
+            ratio = min(1, max(rTipSeam / max(rTip, 1e-12), 0));
+            alphaCone = max(1e-6, asin(ratio));
+            zTipSeam = max(zBase + 1e-6, zTipCenter + rTip * cos(alphaCone));
+
+            if rTipSeam > 0 && (2 * rTipSeam < minSpacing)
+                minimalSeam = true;
+            end
         end
 
-        seam_radius_i = min(seam_radius_i, r_base_i);
-        tip_cap_height = tipSphereRadius_i * max(0, cos(alpha_i));
-        tip_cap_radius = tipSphereRadius_i * max(0, sin(alpha_i));
+        rTipSeam = min(rTipSeam, rBase);
+        tipCapHeight = rTip * max(0, cos(alphaCone));
+        tipCapRadius = rTip * max(0, sin(alphaCone));
 
-        collapse_tip_i = (force_pointy_tip_i || (((seam_radius_i <= tip_collapse_tol) && ~minimal_seam) || ((tip_cap_height < min_spacing) && (tip_cap_radius < min_spacing))));
-        if force_cylinder
-            collapse_tip_i = false;
+        collapseTipI = (forcePointyTipI || (((rTipSeam <= tipCollapseTol) && ~minimalSeam) || ((tipCapHeight < minSpacing) && (tipCapRadius < minSpacing))));
+        if forceCylinder
+            collapseTipI = false;
         end
-        if collapse_tip_i
-            seam_radius_i = 0;
+        if collapseTipI
+            rTipSeam = 0;
         end
 
-        minBaseRadiusMetric = min(minBaseRadiusMetric, r_base_i);
-        minSeamRadiusMetric = min(minSeamRadiusMetric, seam_radius_i);
-        tipCollapsedAll = tipCollapsedAll && collapse_tip_i;
+        minBaseRadiusMetric = min(minBaseRadiusMetric, rBase);
+        minSeamRadiusMetric = min(minSeamRadiusMetric, rTipSeam);
+        tipCollapsedAll = tipCollapsedAll && collapseTipI;
 
-    tip_center = z_tip_center_i * orientation;
+        tipCenter = zTipCenter * orientation;
 
-    produced_spike_count = produced_spike_count + 1;
+        producedSpikeCount = producedSpikeCount + 1;
 
-        L_cone = max(1e-6, z_seam_i - z_base_i);
-        base_count_seq = max(3, base_segments_effective);
-        if collapse_tip_i
-            seam_segments_effective = max(3, base_count_seq);
-        elseif minimal_seam
-            seam_segments_effective = 3;
+        coneHeight = max(1e-6, zTipSeam - zBase);
+        baseCountSeq = max(3, baseSegmentsEffective);
+        if collapseTipI
+            seamSegmentsEffective = max(3, baseCountSeq);
+        elseif minimalSeam
+            seamSegmentsEffective = 3;
         else
-            seam_segments_effective = ring_segment_count(seam_radius_i, min_spacing, azimuth_spacing_factor);
-            seam_segments_effective = max(3, seam_segments_effective);
+            seamSegmentsEffective = ring_segment_count(rTipSeam, minSpacing, azimuthSpacingFactor);
+            seamSegmentsEffective = max(3, seamSegmentsEffective);
         end
-        axial_steps = max(1, ceil(L_cone / (min_spacing * axial_spacing_factor)));
-        num_cone_steps = axial_steps;
+        axialSteps = max(1, ceil(coneHeight / (minSpacing * axialSpacingFactor)));
+        numConeSteps = axialSteps;
 
-        prev_idx = seam_indices{i};
-        seam_is_point = numel(prev_idx) == 1;
+        prevIdx = seamIndices{i};
+        seamIsPoint = numel(prevIdx) == 1;
 
-        for k = 1:num_cone_steps
-            t = k / num_cone_steps;              % 0 at base, 1 at seam
-            ring_radius = (1 - t) * r_base_i + t * seam_radius_i;
-            ring_center = ((1 - t) * z_base_i + t * z_seam_i) * orientation;
-            if ((force_pointy_tip_i && k == num_cone_steps) || (ring_radius <= tip_collapse_tol && k == num_cone_steps))
-                [V, idx_point] = append_vertices(V, ring_center);
-                if numel(prev_idx) > 1
-                    F = [F; connect_ring_to_apex(prev_idx, idx_point)]; %#ok<AGROW>
-                elseif numel(prev_idx) == 1
+        for k = 1:numConeSteps
+            t = k / numConeSteps;              % 0 at base, 1 at seam
+            ringRadius = (1 - t) * rBase + t * rTipSeam;
+            ringCenter = ((1 - t) * zBase + t * zTipSeam) * orientation;
+            if ((forcePointyTipI && k == numConeSteps) || (ringRadius <= tipCollapseTol && k == numConeSteps))
+                [V, idxPoint] = append_vertices(V, ringCenter);
+                if numel(prevIdx) > 1
+                    F = [F; connect_ring_to_apex(prevIdx, idxPoint)]; %#ok<AGROW>
+                elseif numel(prevIdx) == 1
                     % nothing to connect; two points on axis
                 end
-                prev_idx = idx_point;
-                seam_is_point = true;
+                prevIdx = idxPoint;
+                seamIsPoint = true;
                 break;
             end
 
-            if k == num_cone_steps
-                segments_curr = seam_segments_effective;
+            if k == numConeSteps
+                segmentsCurr = seamSegmentsEffective;
             else
-                segments_curr = ring_segment_count(ring_radius, min_spacing, azimuth_spacing_factor);
+                segmentsCurr = ring_segment_count(ringRadius, minSpacing, azimuthSpacingFactor);
             end
-            segments_curr = max(3, segments_curr);
+            segmentsCurr = max(3, segmentsCurr);
 
-            angles_curr = circle_angles(segments_curr);
-            ring_pts = seam_ring_points(ring_center, u, v, ring_radius, angles_curr);
-            [V, idx_ring] = append_vertices(V, ring_pts);
+            anglesCurr = circle_angles(segmentsCurr);
+            ringPts = seam_ring_points(ringCenter, u, v, ringRadius, anglesCurr);
+            [V, idxRing] = append_vertices(V, ringPts);
             if includeCore
-                core_mask(idx_ring) = false;
+                coreMask(idxRing) = false;
             end
 
-            if numel(prev_idx) == 1
-                F = [F; connect_ring_to_apex(idx_ring, prev_idx)]; %#ok<AGROW>
+            if numel(prevIdx) == 1
+                F = [F; connect_ring_to_apex(idxRing, prevIdx)]; %#ok<AGROW>
             else
-                faces_bridge = bridge_rings_idx(prev_idx(:)', idx_ring(:)', V, orientation);
-                F = [F; faces_bridge]; %#ok<AGROW>
+                facesBridge = bridge_rings_idx(prevIdx(:)', idxRing(:)', V, orientation);
+                F = [F; facesBridge]; %#ok<AGROW>
             end
 
-            prev_idx = idx_ring;
+            prevIdx = idxRing;
         end
 
-        seam_ring_idx = prev_idx;
+        seamRingIdx = prevIdx;
 
         % --- Patch B: Spherical tip cap (ring-based) ---
-        apex = tip_center + tipSphereRadius_i * orientation;
-        if seam_is_point
+        apex = tipCenter + rTip * orientation;
+        if seamIsPoint
             % Seam already collapsed to a point; cone-to-tip faces created in loop.
-        elseif collapse_tip_i
-            [V, idx_apex] = append_vertices(V, apex);
+        elseif collapseTipI
+            [V, idxApex] = append_vertices(V, apex);
             if includeCore
-                core_mask(idx_apex) = false;
+                coreMask(idxApex) = false;
             end
-            if numel(seam_ring_idx) > 1
-                F = [F; connect_ring_to_apex(seam_ring_idx, idx_apex)]; %#ok<AGROW>
+            if numel(seamRingIdx) > 1
+                F = [F; connect_ring_to_apex(seamRingIdx, idxApex)]; %#ok<AGROW>
             end
         else
-            cap_arc_length = tipSphereRadius_i * max(alpha_i, 1e-6);
-            if minimal_seam
-                n_cap_rings = 0;
+            capArcLength = rTip * max(alphaCone, 1e-6);
+            if minimalSeam
+                nCapRings = 0;
             else
-                n_cap_rings = max(1, ceil(cap_arc_length / (min_spacing * cap_spacing_factor)));
+                nCapRings = max(1, ceil(capArcLength / (minSpacing * capSpacingFactor)));
             end
-            prev_cap_idx = seam_ring_idx;
-            for j = 1:n_cap_rings
-                t_cap = (n_cap_rings - j + 1) / (n_cap_rings + 1);
-                psi = alpha_i * t_cap;
-                ring_radius = tipSphereRadius_i * sin(psi);
-                ring_center = tip_center + (tipSphereRadius_i * cos(psi)) * orientation;
-                segments_cap = ring_segment_count(ring_radius, min_spacing, cap_spacing_factor);
-                segments_cap = max(3, segments_cap);
-                angles_cap = circle_angles(segments_cap);
-                ring_pts = seam_ring_points(ring_center, u, v, ring_radius, angles_cap);
-                [V, idx_ring] = append_vertices(V, ring_pts);
+            prevCapIdx = seamRingIdx;
+            for j = 1:nCapRings
+                tCap = (nCapRings - j + 1) / (nCapRings + 1);
+                psi = alphaCone * tCap;
+                ringRadius = rTip * sin(psi);
+                ringCenter = tipCenter + (rTip * cos(psi)) * orientation;
+                segmentsCap = ring_segment_count(ringRadius, minSpacing, capSpacingFactor);
+                segmentsCap = max(3, segmentsCap);
+                anglesCap = circle_angles(segmentsCap);
+                ringPts = seam_ring_points(ringCenter, u, v, ringRadius, anglesCap);
+                [V, idxRing] = append_vertices(V, ringPts);
                 if includeCore
-                    core_mask(idx_ring) = false;
+                    coreMask(idxRing) = false;
                 end
-                faces_bridge = bridge_rings_idx(prev_cap_idx(:)', idx_ring(:)', V, orientation);
-                F = [F; faces_bridge]; %#ok<AGROW>
-                prev_cap_idx = idx_ring;
+                facesBridge = bridge_rings_idx(prevCapIdx(:)', idxRing(:)', V, orientation);
+                F = [F; facesBridge]; %#ok<AGROW>
+                prevCapIdx = idxRing;
             end
 
-            [V, idx_apex] = append_vertices(V, apex);
+            [V, idxApex] = append_vertices(V, apex);
             if includeCore
-                core_mask(idx_apex) = false;
+                coreMask(idxApex) = false;
             end
-            F = [F; connect_ring_to_apex(prev_cap_idx, idx_apex)]; %#ok<AGROW>
+            F = [F; connect_ring_to_apex(prevCapIdx, idxApex)]; %#ok<AGROW>
         end
 
         % --- Patch C: Toroidal fillet (suppressed for now) ---
         % Intentionally disabled to focus on core sphere + spike body + tip
     end
 
-    if produced_spike_count == 0
+    if producedSpikeCount == 0
         tipCollapsedAll = false;
     end
 
@@ -678,7 +733,7 @@ function urchin = urchin(varargin)
     end
 
     % After all spikes processed, append remaining active core faces
-    F = [core_F_current; F];
+    F = [coreFCurrent; F];
     
     % Final weld then construct surface mesh
     fprintf('Final welding and surface mesh construction...\n');
@@ -695,7 +750,8 @@ function urchin = urchin(varargin)
     urchin.Faces = meshSurface.Faces;
 
     urchin.Parameters = struct( ...
-        'coreRadius', coreRadius, ...
+        'rCore', rCore, ...
+        'coreRadius', rCore, ...
         'spikeLength', spikeLength, ...
         'spikeCount', spikeCount, ...
         'spikeTipRequested', spikeTipRequested, ...
@@ -719,10 +775,19 @@ function urchin = urchin(varargin)
         'volCriterion', volCriterion ...
     );
 
+    if isempty(rBaseMaxs)
+        spikeBaseMaximaVector = rBaseMaxs;
+    elseif size(rBaseMaxs, 2) > 1
+        spikeBaseMaximaVector = rBaseMaxs(:, 1);
+    else
+        spikeBaseMaximaVector = rBaseMaxs;
+    end
+    spikeBaseMaximaVector = spikeBaseMaximaVector(:);
+
     urchin.Metrics = struct( ...
-        'MinimumSpacing', min_spacing, ...
+        'MinimumSpacing', minSpacing, ...
         'SpikeBaseRadius', spikeBaseRadiusMetric, ...
-        'SpikeBaseMaxima', r_base_max_per_spike, ...
+        'SpikeBaseMaxima', spikeBaseMaximaVector, ...
         'SpikeSeamRadius', spikeSeamRadius, ...
         'SpikeTipRadius', spikeTipSphereRadius, ...
         'SpikeTipDiameter', spikeTipEffectiveDiameter, ...
@@ -749,11 +814,11 @@ function urchin = urchin(varargin)
         [XX,YY,ZZ] = ndgrid(xs,ys,zs);
         P = [XX(:), YY(:), ZZ(:)];
         inside = false(size(P,1),1);
-        inside_has_value = false;
+        insideHasValue = false;
         % Try inpolyhedron (File Exchange) if available
         try
             inside = inpolyhedron(urchin.Faces, urchin.Vertices, P);
-            inside_has_value = true;
+            insideHasValue = true;
         catch
             % Fallback: alphaShape from mesh vertices, choose alpha automatically or use input
             warning('inpolyhedron failed; falling back to alphaShape.');
@@ -767,14 +832,14 @@ function urchin = urchin(varargin)
             try
                 shpVol = alphaShape(urchin.Vertices, alphaVol);
                 inside = inShape(shpVol, P(:,1), P(:,2), P(:,3));
-                inside_has_value = true;
+                insideHasValue = true;
             catch
                 % As a last resort, mark nothing inside
                 inside = false(size(P,1),1);
-                inside_has_value = true;
+                insideHasValue = true;
             end
         end
-        if ~inside_has_value
+        if ~insideHasValue
             inside = false(size(P,1),1);
         end
         VolumeMask = reshape(logical(inside), size(XX));
@@ -805,7 +870,7 @@ function urchin = urchin(varargin)
     end
 
     elapsedTime = toc;
-    fprintf('B-Rep Urchin created successfully in %.2f seconds.\n', elapsedTime);
+    fprintf('Urchin created successfully in %.2f seconds.\n', elapsedTime);
     fprintf('Generated mesh with %d vertices and %d faces.\n', size(urchin.Vertices, 1), size(urchin.Faces, 1));
 
     urchin.Metrics.GenerationTimeSeconds = elapsedTime;
@@ -823,96 +888,5 @@ function urchin = urchin(varargin)
         % surfaceMeshShow(urchin.SurfaceMesh, Parent=viewer, VerticesOnly=true);
 
     end
-end
-
-function [r_base_nominal, r_tip_nominal, alpha_nominal, z_seam_nominal] = compute_nominal_spike_profile(coreRadius, spikeLength, tipSphereRadius, conicalityEffective, r_base_max_local, scale)
-%COMPUTE_NOMINAL_SPIKE_PROFILE Baseline spike profile honoring tip tangency and conicality.
-
-    r_base_max_local = max(0, min(r_base_max_local, 0.999 * coreRadius));
-    spikeLength = max(spikeLength, 0);
-    z_apex = coreRadius + spikeLength;
-    tipSphereRadius = max(0, min(tipSphereRadius, spikeLength));
-    z_tip_center = z_apex - tipSphereRadius;
-
-    if tipSphereRadius > 0 && r_base_max_local > 0
-        r_base = min(max(min(tipSphereRadius, r_base_max_local), 0), r_base_max_local);
-        for iter = 1:8
-            [r_tip_candidate, ~, ~, tangentValid] = solve_tip_tangent(r_base, coreRadius, z_tip_center, tipSphereRadius);
-            if ~tangentValid
-                r_tip_candidate = min(r_base, tipSphereRadius);
-            end
-            if conicalityEffective >= 0
-                r_base_target = r_tip_candidate + conicalityEffective * (r_base_max_local - r_tip_candidate);
-            else
-                r_base_target = max(0, (1 + conicalityEffective) * r_tip_candidate);
-            end
-            r_base_target = min(r_base_target, r_base_max_local);
-            if abs(r_base_target - r_base) <= 1e-9 * max(scale, 1)
-                r_base = r_base_target;
-                break;
-            end
-            r_base = r_base_target;
-        end
-
-        [r_tip_nominal, alpha_nominal, z_seam_nominal, tangentValid] = solve_tip_tangent(r_base, coreRadius, z_tip_center, tipSphereRadius);
-        if ~tangentValid
-            r_tip_nominal = min(r_base, tipSphereRadius);
-            ratio = min(1, max(r_tip_nominal / max(tipSphereRadius, 1e-12), 0));
-            alpha_nominal = max(1e-6, asin(ratio));
-            z_seam_nominal = z_tip_center + tipSphereRadius * cos(alpha_nominal);
-        end
-        r_base_nominal = r_base;
-    else
-        r_base_nominal = min(r_base_max_local, max(0, min(tipSphereRadius, r_base_max_local)));
-        r_tip_nominal = 0;
-        alpha_nominal = pi/2;
-        z_seam_nominal = z_apex;
-    end
-
-    r_base_nominal = max(r_base_nominal, 0);
-    r_tip_nominal = max(min(r_tip_nominal, tipSphereRadius), 0);
-    alpha_nominal = min(max(alpha_nominal, 1e-6), pi/2);
-    z_seam_nominal = max(z_seam_nominal, coreRadius);
-end
-
-function r_base_limit = tangent_base_limit(coreRadius, tipSphereRadius, spikeLength)
-%TANGENT_BASE_LIMIT Maximum base radius for a spike length to remain tangent.
-
-    if coreRadius <= 0
-        r_base_limit = 0;
-        return;
-    end
-
-    if tipSphereRadius <= 0
-        r_base_limit = coreRadius;
-        return;
-    end
-
-    spikeLength = max(spikeLength, 0);
-    total_height = coreRadius + spikeLength;
-    tip_total = coreRadius + tipSphereRadius;
-
-    if total_height <= tip_total
-        r_base_limit = 0;
-        return;
-    end
-
-    sin_alpha = tip_total / total_height;
-    sin_alpha = min(max(sin_alpha, 0), 1);
-    cos_alpha = sqrt(max(0, 1 - sin_alpha^2));
-    r_base_limit = coreRadius * cos_alpha;
-end
-
-function volume = computeMeshVolume(vertices, faces)
-%COMPUTEMESHVOLUME Calculate enclosed volume of a triangular surface mesh.
-    if isempty(vertices) || isempty(faces)
-        volume = 0;
-        return;
-    end
-    v1 = vertices(faces(:,1), :);
-    v2 = vertices(faces(:,2), :);
-    v3 = vertices(faces(:,3), :);
-    tetraVol = dot(v1, cross(v2, v3, 2), 2) / 6;
-    volume = abs(sum(tetraVol));
 end
 

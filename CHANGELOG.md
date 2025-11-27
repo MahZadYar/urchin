@@ -6,6 +6,27 @@ All notable changes to this project will be documented in this file. The
 format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.3.0] - 2025-11-27
+
+### Added
+
+- **Spike Orientation Refinement**: Implemented a Coulomb-like relaxation solver
+  that redistributes spike orientations to maximise angular separation before
+  geometry generation.
+- Added `refinedOrientation` and `refinedOrientationThreshold` parameters to
+  control the relaxation process.
+- Introduced a momentum-based update strategy to ensure stable convergence without
+  oscillation, even for high spike counts.
+- Added an `URCHIN_REFINE_VIS` environment toggle to visualise the relaxation
+  process in real-time.
+- **Cone Seam Solver**: Redefined the calculation logic for solving cone seams in
+  `solveConeSeams.m` to robustly handle the tangency condition between conical
+  bodies and spherical tips.
+
+### Changed
+
+- Updated `urchin.m` to invoke the refinement pass when requested.
+
 ## [4.2.0] - 2025-10-10
 
 <!-- markdownlint-disable-next-line MD024 -->

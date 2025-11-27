@@ -1,10 +1,12 @@
 # urchin
 
 `urchin` is a MATLAB toolkit for generating deterministic, curvature-aware B-Rep
-surface meshes of urchin-like particles. Version 4.2.0 expands the geometry
-metrics to track per-spike base maxima, derives those maxima directly from spike
-orientations, and feeds the tighter bounds back into mesh generation so short
-spikes stay stable. Version 4.1.0 reinforced the short-spike behaviour introduced
+surface meshes of urchin-like particles. Version 4.3.0 introduces an optional
+spike-orientation refinement pass that uses a momentum-based Coulomb relaxation
+solver to evenly distribute spikes on the core surface. Version 4.2.0 expands
+the geometry metrics to track per-spike base maxima, derives those maxima
+directly from spike orientations, and feeds the tighter bounds back into mesh
+generation so short spikes stay stable. Version 4.1.0 reinforced the short-spike behaviour introduced
 in 4.0 by clamping spherical tips per spike, keeping cone bases finite, and
 deriving cone sampling strictly from the requested spacing. Patch 4.0.1 restored
 zero spike jitter by default so results are deterministic unless you opt into
@@ -18,6 +20,10 @@ Properties of Gold Nanourchins"* (ACS Applied Nano Materials, DOI:
 
 ## 🚀 What’s new
 
+- **Release v4.3.0** – adds a physics-based orientation refinement solver that
+    relaxes spike positions using electrostatic repulsion to maximise angular
+    separation. Includes a momentum-based stabiliser to prevent oscillation and
+    an `URCHIN_REFINE_VIS` environment toggle for live visualisation.
 - **Release v4.2.0** – derives per-spike maximum base radii from orientation
     dot products, exposes the maxima vector in `Metrics.SpikeBaseMaxima`, and
     feeds the tighter bound into the cone generator so short spikes hold their
