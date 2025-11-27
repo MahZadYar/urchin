@@ -56,6 +56,7 @@ visualize = struct( ...
     'surfaceMeshWireframe', true, ...  % Render surface mesh in wireframe mode
     'surfaceMeshAlpha', 0.75, ...       % Opacity for solid rendering (0-1)
     'showVolumeMask', false, ...        % Visualize dense volume mask (requires genVolume=true & volAdaptive=false)
+    'annotateSpikeInfo', true, ...          % Show spike indices and lengths on the mesh
     'volumeRenderingStyle', "CinematicRendering" ... % volshow rendering style
     );
 
@@ -144,6 +145,14 @@ if visualize.showSurfaceMesh && isfield(urchinStruct, 'SurfaceMesh')
         end
         if(visualize.surfaceMeshWireframe)
             surfaceMeshShow(urchinStruct.SurfaceMesh, Parent=viewer, WireFrame=true);
+        end
+        if visualize.annotateSpikeInfo
+            try
+                annotateSpikeApexes(viewer, urchinStruct);
+            catch annotationErr
+                warning('Urchin_Creator:annotateSpikeInfoFailed', ...
+                    'Unable to annotate spikes: %s', annotationErr.message);
+            end
         end
     else
         figure('Name', 'Urchin Surface Mesh');
@@ -278,4 +287,55 @@ end
 %% Helper functions ---------------------------------------------------------
 % Utility helpers are now provided as standalone functions:
 %   mergeStructs.m, struct2NameValue.m, autoLabel.m, valueToken.m
+
+function annotateSpikeApexes(viewer, urchinStruct)
+%ANNOTATESPIKEApexes Add spike index/length labels as 3D point annotations.
+    if exist('images.ui.graphics3d.roi.Point', 'class') ~= 8
+        warning('Urchin_Creator:pointRoiUnavailable', ...
+            'images.ui.graphics3d.roi.Point is unavailable in this MATLAB installation.');
+        return;
+    end
+
+    if ~isfield(urchinStruct, 'Parameters')
+        warning('Urchin_Creator:noParametersStruct', ...
+            'Spike parameter metadata is missing; cannot annotate.');
+        return;
+    end
+
+    params = urchinStruct.Parameters;
+    requiredFields = {'spikeOrientations', 'spikeLengths', 'rCore'};
+    if ~all(isfield(params, requiredFields))
+        warning('Urchin_Creator:missingSpikeData', ...
+            'Spike orientations/lengths are not available in urchin.Parameters.');
+        return;
+    end
+
+    orientations = params.spikeOrientations;
+    spikeLengths = params.spikeLengths(:);
+    rCore = params.rCore;
+
+    if isempty(orientations) || isempty(spikeLengths)
+        warning('Urchin_Creator:noSpikeVectors', 'No spike data to annotate.');
+        return;
+    end
+
+    if size(orientations, 1) ~= numel(spikeLengths) || size(orientations, 2) ~= 3
+        warning('Urchin_Creator:spikeDimensionMismatch', ...
+            'Spike orientation and length arrays must be N-by-3 and N-by-1 respectively.');
+        return;
+    end
+
+    apexOffsets = rCore + spikeLengths;
+    apexPositions = orientations .* apexOffsets;
+    spikeCount = size(orientations, 1);
+    spikePoints = cell(1, spikeCount);
+
+    for idx = 1:spikeCount
+        label = sprintf('Spike #%d (%.3g nm)', idx, spikeLengths(idx));
+        spikePoints{idx} = images.ui.graphics3d.roi.Point(viewer, ...
+            Label=label, Position=apexPositions(idx, :));
+    end
+
+    viewer.Annotations = [spikePoints{:}];
+end
 
