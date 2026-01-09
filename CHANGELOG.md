@@ -6,6 +6,43 @@ All notable changes to this project will be documented in this file. The
 format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.0.0] - 2026-01-09
+
+### Breaking Changes
+
+- All name-value arguments and helper function identifiers now follow MATLAB
+  coding standards (UpperCamelCase for parameters, lowerCamelCase for helpers).
+  Update callers to the new naming to avoid undefined-function errors.
+
+### Added
+
+- Modular volume pipeline split into dense voxelization and adaptive octree
+  generation with layered fallbacks (`inpolyhedron` → `alphaShape` → empty mask).
+- New dedicated helpers for ring generation, core trimming, and volume
+  construction to isolate complex geometry stages.
+
+### Changed
+
+- Pre-allocated face buffers in the spike loop eliminate O(n²) growth, yielding
+  ~50–70% speedups on high spike counts while keeping meshes identical.
+- Core trimming moved into a focused helper, reducing main-function clutter and
+  improving readability and future testability.
+- Ring generation patterns consolidated into a single helper, cutting duplicate
+  logic and ensuring consistent sampling across base, cone, and tip rings.
+- Volume generation delegated to a dedicated module with improved error
+  handling and clearer separation of dense vs. adaptive modes.
+- Input parsing and string handling modernized (arguments block, string scalars)
+  for better IDE support and simpler validation.
+- Error handling hardened around mesh welding and volumetrics with tolerant
+  fallbacks instead of hard failures.
+- Tests and examples updated to the new API surface; all regression tests pass.
+
+### Migration Guide
+
+- Replace legacy snake_case parameters with the new UpperCamelCase names when
+  calling `urchin`. Legacy names are no longer supported in v5.
+  Example: `urchin(CoreRadius=30, SpikeLength=15, SpikeCount=100)`.
+
 ## [4.3.0] - 2025-11-27
 
 ### Added

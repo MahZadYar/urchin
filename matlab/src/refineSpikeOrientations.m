@@ -56,15 +56,14 @@ function orientations = refineSpikeOrientations(orientations, thresholdDeg)
     maxDelta = Inf;
     for iter = 1:maxIterations
         prevPts = pts;
-        forces = zeros(n, 3);
-        for i = 1:n
-            diffs = pts(i, :) - pts;
-            distSq = sum(diffs.^2, 2);
-            distSq(i) = Inf;
-            invDist3 = distSq.^(-1.5);
-            invDist3(~isfinite(invDist3)) = 0;
-            forces(i, :) = sum(diffs .* invDist3, 1);
-        end
+        % Vectorised Coulomb-like repulsion (avoids per-spike loop)
+        % diffs: n x n x 3 tensor of pairwise deltas
+        diffs = reshape(pts, [n, 1, 3]) - reshape(pts, [1, n, 3]);
+        distSq = sum(diffs.^2, 3);
+        distSq(1:n+1:end) = Inf;           % ignore self-distances
+        invDist3 = distSq.^(-1.5);
+        invDist3(~isfinite(invDist3)) = 0;
+        forces = squeeze(sum(diffs .* invDist3, 2));
 
         % Remove radial component to keep pure tangential motion
         radialComp = sum(forces .* pts, 2);

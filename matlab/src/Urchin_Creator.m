@@ -9,41 +9,41 @@
 
 %% Geometry and spike layout -------------------------------------------------
 geometry = struct( ...
-    'rCore', 1, ...           % Core radius (nm)
-    'spikeLength', 0.2, ...          % Spike length measured from the core surface (nm)
-    'spikeCount', 100, ...         % Number of spikes
-    'spikeTip', 0.2, ...           % [] → use default spherical tip diameter (spikeLength/10)
-    'spikeConicality', 1 ...          % Conicality: 0 = cylinder, 1 = widest base
+    'CoreRadius', 100, ...           % Core radius (nm)
+    'SpikeLength', 100, ...          % Spike length measured from the core surface (nm)
+    'SpikeCount', 20, ...         % Number of spikes
+    'SpikeTipDiameter', 50, ...           % [] → use default spherical tip diameter (SpikeLength/10)
+    'SpikeConicality', 1 ...          % Conicality: 0 = cylinder, 1 = widest base
     );
 
 %% Surface quality and refinement controls ----------------------------------
 surfaceControls = struct( ...
-    'filletRatio', 0.25, ...   % Toroidal fillet radius relative to seam diameter
-    'resolution', 50, ...    % Dimensionless resolution controlling mesh spacing
-    'useFillet', true, ...     % Include toroidal core↔spike fillet (future toggles)
-    'includeCore', true ...    % Keep the trimmed core surface in the final mesh
+    'FilletRatio', 0.25, ...   % Toroidal fillet radius relative to seam diameter
+    'Resolution', 50, ...    % Dimensionless resolution controlling mesh spacing
+    'UseFillet', true, ...     % Include toroidal core↔spike fillet (future toggles)
+    'IncludeCore', true ...    % Keep the trimmed core surface in the final mesh
     );
 
 %% Spike stochasticity -------------------------------------------------------
 stochastic = struct( ...
-    'flucFactor', 1, ...          % Spike length fluctuation factor (0 = no fluctuation)
-    'flucMethod', 'uniform', ... % 'uniform' | 'random' | 'gaussian'
-    'distMethod', 'uniform', ...  % 'uniform' | 'random'
-    'refinedOrientation', true, ... % Relax spike orientations using electrostatic settling
-    'refinedOrientationThreshold', 0.1 ... % Minimum angular separation target (degrees)
+    'FlucFactor', 1, ...          % Spike length fluctuation factor (0 = no fluctuation)
+    'FlucMethod', 'uniform', ... % 'uniform' | 'random' | 'gaussian'
+    'DistMethod', 'uniform', ...  % 'uniform' | 'random'
+    'RefinedOrientation', true, ... % Relax spike orientations using electrostatic settling
+    'RefinedOrientationThresholdDeg', 0.1 ... % Minimum angular separation target (degrees)
     );
 
 %% Volume representation controls -------------------------------------------
 volumeControls = struct( ...
-    'genVolume', false, ...    % Enable volume generation (dense or adaptive)
-    'volRes', 128, ...         % Target voxels along longest axis (dense volume)
-    'volPadding', 0.05, ...    % Fractional AABB padding for voxelization
-    'volAlpha', [], ...        % AlphaShape fallback parameter (auto when [])
-    'volAdaptive', false, ...  % true = adaptive octree, false = dense grid
-    'volDxMax', [], ...        % Max voxel size for adaptive volume (auto when [])
-    'volDxMin', [], ...        % Min voxel size for adaptive volume (auto when [])
-    'volBlockSize', 8, ...     % Leaf block resolution for adaptive volume
-    'volCriterion', 'boundary' ... % Refinement criterion: 'boundary' | 'distance' | 'curvature' | 'hybrid'
+    'GenVolume', false, ...    % Enable volume generation (dense or adaptive)
+    'VolResolution', 128, ...         % Target voxels along longest axis (dense volume)
+    'VolPadding', 0.05, ...    % Fractional AABB padding for voxelization
+    'VolAlpha', [], ...        % AlphaShape fallback parameter (auto when [])
+    'VolAdaptive', false, ...  % true = adaptive octree, false = dense grid
+    'VolDxMax', [], ...        % Max voxel size for adaptive volume (auto when [])
+    'VolDxMin', [], ...        % Min voxel size for adaptive volume (auto when [])
+    'VolBlockSize', 8, ...     % Leaf block resolution for adaptive volume
+    'VolCriterion', 'boundary' ... % Refinement criterion: 'boundary' | 'distance' | 'curvature' | 'hybrid'
     );
 
 %% Consolidate parameter structs --------------------------------------------
@@ -55,7 +55,7 @@ visualize = struct( ...
     'showSurfaceMesh', true, ...        % Visualize the surface mesh
     'surfaceMeshWireframe', true, ...  % Render surface mesh in wireframe mode
     'surfaceMeshAlpha', 0.75, ...       % Opacity for solid rendering (0-1)
-    'showVolumeMask', false, ...        % Visualize dense volume mask (requires genVolume=true & volAdaptive=false)
+    'showVolumeMask', false, ...        % Visualize dense volume mask (requires GenVolume=true & VolAdaptive=false)
     'annotateSpikeInfo', true, ...          % Show spike indices and lengths on the mesh
     'volumeRenderingStyle', "CinematicRendering" ... % volshow rendering style
     );
@@ -68,9 +68,9 @@ exports = struct( ...
     'surfaceMeshFormat', "stl", ...  % 'stl' | 'ply' (limited by writeSurfaceMesh)
     'surfaceMeshEncoding', "binary", ... % STL encoding ('ascii' or 'binary')
     'saveMeshMat', false, ...          % Save mesh struct + diagnostics as MAT file
-    'saveVolumeMask', false, ...      % Save dense volume mask (requires genVolume & ~volAdaptive)
+    'saveVolumeMask', false, ...      % Save dense volume mask (requires GenVolume & ~VolAdaptive)
     'saveVolumeMaskFormat', "mat", ... % Currently 'mat' supported
-    'saveVolumeOctree', false, ...    % Save adaptive octree (requires genVolume & volAdaptive)
+    'saveVolumeOctree', false, ...    % Save adaptive octree (requires GenVolume & VolAdaptive)
     'saveDiagnosticsJson', false, ...  % Export diagnostics to JSON
     'saveDiagnosticsMat', false, ...  % Export diagnostics to MAT
     'saveConfigurationJson', true, ...% Export run configuration to JSON
@@ -83,34 +83,34 @@ if exports.saveVolumeMask && exports.saveVolumeOctree
         'Dense volume masks and adaptive octrees require separate runs. Disable one of the export toggles.');
 end
 
-if (visualize.showVolumeMask || exports.saveVolumeMask) && ~urchinParams.genVolume
+if (visualize.showVolumeMask || exports.saveVolumeMask) && ~urchinParams.GenVolume
     warning('Urchin_Creator:enablingDenseVolume', ...
         'Enabling dense volume generation to honour volume mask visualization/export request.');
-    urchinParams.genVolume = true;
+    urchinParams.GenVolume = true;
 end
 
-if exports.saveVolumeOctree && (~urchinParams.genVolume || ~urchinParams.volAdaptive)
+if exports.saveVolumeOctree && (~urchinParams.GenVolume || ~urchinParams.VolAdaptive)
     warning('Urchin_Creator:enablingAdaptiveVolume', ...
         'Enabling adaptive volume generation to honour octree export request.');
-    urchinParams.genVolume = true;
-    urchinParams.volAdaptive = true;
+    urchinParams.GenVolume = true;
+    urchinParams.VolAdaptive = true;
 end
 
-if exports.saveVolumeMask && urchinParams.volAdaptive
+if exports.saveVolumeMask && urchinParams.VolAdaptive
     error('Urchin_Creator:denseMaskRequiresNonAdaptive', ...
-        'Dense volume masks are only produced when volAdaptive=false. Adjust configuration.');
+        'Dense volume masks are only produced when VolAdaptive=false. Adjust configuration.');
 end
 
-if visualize.showVolumeMask && urchinParams.volAdaptive
+if visualize.showVolumeMask && urchinParams.VolAdaptive
     warning('Urchin_Creator:noDenseVolume', ...
-        'volAdaptive=true -> no dense mask to visualise. Disable showVolumeMask or switch volAdaptive=false.');
+        'VolAdaptive=true -> no dense mask to visualise. Disable showVolumeMask or switch VolAdaptive=false.');
 end
 
 %% Invoke urchin -------------------------------------------------------------
 nvPairs = struct2NameValue(urchinParams);
 
-fprintf('Launching urchin with %d spikes, rCore=%.3g nm, spikeLength=%.3g nm, spikeTip=%.3g nm, spikeConicality=%.3g...\n', ...
-    urchinParams.spikeCount, urchinParams.rCore, urchinParams.spikeLength, urchinParams.spikeTip, urchinParams.spikeConicality);
+fprintf('Launching urchin with %d spikes, CoreRadius=%.3g nm, SpikeLength=%.3g nm, SpikeTipDiameter=%.3g nm, SpikeConicality=%.3g...\n', ...
+    urchinParams.SpikeCount, urchinParams.CoreRadius, urchinParams.SpikeLength, urchinParams.SpikeTipDiameter, urchinParams.SpikeConicality);
 urchinStruct = urchin(nvPairs{:});
 
 needDiagnostics = visualize.printDiagnostics || ...
@@ -225,7 +225,7 @@ if exports.saveVolumeMask
         end
     else
         warning('Urchin_Creator:noDenseMask', ...
-            'saveVolumeMask enabled but urchinStruct.VolumeMask is empty. Ensure genVolume=true and volAdaptive=false.');
+            'saveVolumeMask enabled but urchinStruct.VolumeMask is empty. Ensure GenVolume=true and VolAdaptive=false.');
     end
 end
 
@@ -297,26 +297,26 @@ function annotateSpikeApexPoints(viewer, urchinStruct)
         return;
     end
     params = urchinStruct.Parameters;
-    requiredFields = {'rCore', 'spikeLengths', 'spikeOrientations'};
+    requiredFields = {'CoreRadius', 'SpikeLengths', 'SpikeOrientations'};
     for idx = 1:numel(requiredFields)
         if ~isfield(params, requiredFields{idx}) || isempty(params.(requiredFields{idx}))
             return;
         end
     end
-    orientations = params.spikeOrientations;
-    lengths = params.spikeLengths(:);
+    orientations = params.SpikeOrientations;
+    lengths = params.SpikeLengths(:);
     if size(orientations, 2) ~= 3 || isempty(lengths)
         return;
     end
     nSpikes = min(size(orientations,1), numel(lengths));
     orientations = orientations(1:nSpikes, :);
     lengths = lengths(1:nSpikes);
-    apexRadius = params.rCore + lengths;
+    apexRadius = params.CoreRadius + lengths;
     apexPositions = orientations .* apexRadius;
     pointArray = images.ui.graphics3d.roi.Point.empty;
     pointArray(1, nSpikes) = images.ui.graphics3d.roi.Point;
     for k = 1:nSpikes
-        label = sprintf('Spike #%d (%.3g nm)', k, lengths(k));
+        label = sprintf('S#%d\n(%.3g)', k, lengths(k));
         pointArray(k) = images.ui.graphics3d.roi.Point( ...
             Parent=viewer, Label=label, Position=apexPositions(k, :));
     end
