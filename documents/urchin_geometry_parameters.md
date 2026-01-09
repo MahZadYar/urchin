@@ -8,18 +8,18 @@ User-defined settings that drive the generation process.
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `rCore` | Input | `1` | **Core Radius (nm)**. Radius of the central spherical core. |
-| `spikeLength` | Input | `1` | **Spike Length (nm)**. Nominal length from core surface. |
-| `spikeCount` | Input | `100` | **Number of Spikes**. Total spikes to generate. |
-| `spikeTip` | Input | `[]` | **Spike Tip Diameter (nm)**. Diameter of tip cap. Defaults to `spikeLength/10` if empty. |
-| `spikeConicality` | Input | `0.5` | **Conicality [-1,1]**. Controls shape: <br> `1`: Widest cone (max base). <br> `0`: Cylindrical stud. <br> `-1`: Tapered base (radius 0). |
-| `resolution` | Input | `100` | **Mesh Resolution**. Dimensionless factor controlling mesh density. |
-| `useFillet` | Input | `true` | **Enable Fillet**. Enables toroidal blending between core and spikes. |
-| `flucFactor` | Input | `0.5` | **Fluctuation Factor** `[0,1]`. Magnitude of length variation. |
-| `flucMethod` | Input | `'uniform'` | **Fluctuation Method**. `uniform` (Sobol), `random`, or `gaussian`. |
-| `distMethod` | Input | `'uniform'` | **Distribution Method**. `uniform` (Golden Spiral) or `random`. |
-| `refinedOrientation`| Input | `true` | **Refine Orientation**. Enable Coulomb-like relaxation of positions. |
-| `refinedOrientationThreshold`| Input | `0.1` | **Refinement Threshold**. Min angular separation target (degrees). |
+| `CoreRadius` | Input | `1` | **Core Radius (nm)**. Radius of the central spherical core. |
+| `SpikeLength` | Input | `1` | **Spike Length (nm)**. Nominal length from core surface. |
+| `SpikeCount` | Input | `100` | **Number of Spikes**. Total spikes to generate. |
+| `SpikeTipDiameter` | Input | `[]` | **Spike Tip Diameter (nm)**. Diameter of tip cap. Defaults to `SpikeLength/10` if empty. |
+| `SpikeConicality` | Input | `0.5` | **Conicality [-1,1]**. Controls shape: <br> `1`: Widest cone (max base). <br> `0`: Cylindrical stud. <br> `-1`: Tapered base (radius 0). |
+| `Resolution` | Input | `100` | **Mesh Resolution**. Dimensionless factor controlling mesh density. |
+| `UseFillet` | Input | `true` | **Enable Fillet**. Enables toroidal blending between core and spikes. |
+| `FlucFactor` | Input | `0.5` | **Fluctuation Factor** `[0,1]`. Magnitude of length variation. |
+| `FlucMethod` | Input | `'uniform'` | **Fluctuation Method**. `uniform` (Sobol), `random`, or `gaussian`. |
+| `DistMethod` | Input | `'uniform'` | **Distribution Method**. `uniform` (Golden Spiral) or `random`. |
+| `RefinedOrientation`| Input | `true` | **Refine Orientation**. Enable Coulomb-like relaxation of positions. |
+| `RefinedOrientationThresholdDeg`| Input | `0.1` | **Refinement Threshold**. Min angular separation target (degrees). |
 
 ## 2. Global Derived Parameters
 
@@ -27,8 +27,8 @@ Parameters derived immediately from inputs that affect the entire mesh.
 
 | Parameter | Definition / Derivation | Description |
 | :--- | :--- | :--- |
-| `scale` | `2 * (rCore + spikeLength)` | **Characteristic Scale**. Normalization scale for mesh heuristics. |
-| `minSpacing` | `max(1e-9, scale / resolution)` | **Minimum Spacing**. Target minimum vertex distance. |
+| `scale` | `2 * (CoreRadius + SpikeLength)` | **Characteristic Scale**. Normalization scale for mesh heuristics. |
+| `minSpacing` | `max(1e-9, scale / Resolution)` | **Minimum Spacing**. Target minimum vertex distance. |
 | `coreSubdiv` | `ceil(0.5 * log2((Area / spacing^2))` | **Core Subdivision Level**. Icosphere recursion depth based on resolution. |
 
 ## 3. Spike Orientations and Lengths
@@ -37,9 +37,9 @@ First stage of per-spike computation.
 
 | Parameter | Definition / Derivation | Description |
 | :--- | :--- | :--- |
-| `spikeOrientations` | `distMethod` + Relaxation | **Spike Directions**. Unit vectors $\vec{n}_i$ for spike axes. |
-| `spikeLengths` | `spikeLength` + `flucFactor` | **Actual Spike Lengths**. $L_i$. Final length per spike after fluctuations. |
-| `zTipApex` | `rCore + spikeLengths` | **Tip Apex Distance**. Distance from origin to the very top of the spike. |
+| `spikeOrientations` | `DistMethod` + Relaxation | **Spike Directions**. Unit vectors $\vec{n}_i$ for spike axes. |
+| `spikeLengths` | `SpikeLength` + `FlucFactor` | **Actual Spike Lengths**. $L_i$. Final length per spike after fluctuations. |
+| `zTipApex` | `CoreRadius + spikeLengths` | **Tip Apex Distance**. Distance from origin to the very top of the spike. |
 
 ## 4. Spike Base Constraints
 
