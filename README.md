@@ -1,17 +1,22 @@
 # urchin
 
 `urchin` is a MATLAB toolkit for generating deterministic, curvature-aware B-Rep
-surface meshes of urchin-like particles. Version 5.0 modernizes the entire
-codebase with MATLAB coding standards, achieving 50–70% performance gains on
-dense geometries through pre-allocated buffers and modular refactoring while
-maintaining full backward compatibility for all mesh outputs. The codebase
-originated in support of the peer-reviewed study *"Influence of Spike Geometry
-on Electromagnetic Field Enhancement and the Linear and Nonlinear Plasmonic
-Properties of Gold Nanourchins"* (ACS Applied Nano Materials, DOI:
-[10.1021/acsanm.5c03297](https://doi.org/10.1021/acsanm.5c03297)).
+surface meshes of urchin-like particles. Version 5.1 adds an interactive
+dashboard UI with real-time 3D preview and parameter controls, building on v5.0's
+modernized codebase that achieves 50–70% performance gains through pre-allocated
+buffers and modular refactoring. The codebase originated in support of the
+peer-reviewed study *"Influence of Spike Geometry on Electromagnetic Field
+Enhancement and the Linear and Nonlinear Plasmonic Properties of Gold Nanourchins"*
+(ACS Applied Nano Materials, DOI: [10.1021/acsanm.5c03297](https://doi.org/10.1021/acsanm.5c03297)).
 
 ## 🚀 What's new
 
+- **Release v5.1.0** – introduces `urchinDashboard`, an interactive UI application
+    with HTML/JavaScript control panel and viewer3d-based 3D preview. Exposes all
+    urchin parameters in an organized grid layout with real-time mesh generation,
+    STL/JSON export, computed minSpacing display, and auto-preview on startup.
+    Features a fixed toolbar with Generate/Export buttons and scrollable parameter
+    sections (Core & General, Spike Configuration, Volume controls).
 - **Release v5.0.0** – comprehensive modernization delivering 50–70% speedups for
     high spike counts through pre-allocated face buffers, modern `arguments` 
     validation blocks, and modular volume generation with layered fallbacks. All
@@ -26,6 +31,18 @@ Properties of Gold Nanourchins"* (ACS Applied Nano Materials, DOI:
     dot products, exposes the maxima vector in `Metrics.SpikeBaseMaxima`, and
     feeds the tighter bound into the cone generator so short spikes hold their
     footprint.
+
+### Highlights from v5.1
+
+- **Interactive Dashboard** – new `urchinDashboard()` function launches a
+    uifigure with HTML controls and viewer3d 3D preview.
+- **Smart layout** – organized parameter sections with toggle+input pairs,
+    three-column rows for related settings, and computed metrics display.
+- **One-click export** – Generate mesh, export STL, save JSON config from
+    toolbar buttons.
+- **Auto-preview** – default urchin rendered on startup for immediate feedback.
+- **Visual consistency** – matches `urchin.m` rendering style (translucent fill
+    with wireframe overlay, fixed camera positioning).
 
 ### Highlights from v5.0
 
@@ -45,6 +62,7 @@ See the full release notes in [`CHANGELOG.md`](CHANGELOG.md).
 ## Project layout
 
 - `matlab/src/` – core source code (`urchin.m` and helpers).
+- `matlab/app/` – interactive dashboard (`urchinDashboard.m`, `urchin-dashboard.html`).
 - `matlab/examples/` – runnable scripts showing typical workflows.
 - `matlab/tests/` – unit tests for trimming, stitching, and diagnostics.
 - `CITATION.cff` – citation metadata for the project.
@@ -58,6 +76,25 @@ See the full release notes in [`CHANGELOG.md`](CHANGELOG.md).
 - Optional: Parallel Computing Toolbox for GPU experiments.
 
 ## Quick start
+
+### Interactive Dashboard (new in v5.1)
+
+Launch the interactive UI to explore parameters and visualize meshes in real-time:
+
+```matlab
+addpath("path/to/urchin/matlab/src");
+addpath("path/to/urchin/matlab/app");
+urchinDashboard();
+```
+
+The dashboard provides:
+- All urchin parameters organized in a scrollable panel
+- Real-time 3D preview with viewer3d
+- One-click STL and JSON config export
+- Computed minSpacing display
+- Debug mode toggle for detailed error messages
+
+### Programmatic API
 
 1. Add the source directory to your MATLAB path:
 
