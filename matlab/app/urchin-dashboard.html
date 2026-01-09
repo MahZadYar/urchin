@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Urchin Dashboard</title>
+    <style>
+        :root {
+            --bg: #0b0c0f;
+            --panel: #12141a;
+            --panel-alt: #161922;
+            --accent: #0fa3b1;
+            --accent-strong: #f29e4c;
+            --muted: #8ea0b5;
+            --text: #e8ecf2;
+            --danger: #f25c54;
+            --success: #5bc77a;
+            --border: #1f2430;
+            --shadow: 0 18px 40px rgba(0, 0, 0, 0.3);
+            font-family: "Archivo", "Segoe UI", system-ui, -apple-system, sans-serif;
+        }
+
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: radial-gradient(circle at 20% 20%, rgba(15,163,177,0.08), transparent 40%),
+                        radial-gradient(circle at 80% 0%, rgba(242,158,76,0.12), transparent 40%),
+                        var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 12px;
+        }
+
+        .shell {
+            display: grid;
+            grid-template-rows: auto auto 1fr;
+            gap: 12px;
+        }
+
+        .header {
+            background: linear-gradient(120deg, rgba(15,163,177,0.18), rgba(242,158,76,0.2));
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 12px;
+            padding: 12px 14px;
+            box-shadow: var(--shadow);
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 20px;
+            letter-spacing: 0.5px;
+        }
+
+        .status-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .chip {
+            background: var(--panel-alt);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            box-shadow: var(--shadow);
+        }
+
+        .chip .label { color: var(--muted); font-size: 12px; }
+        .chip .value { font-weight: 700; font-size: 18px; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+            /* Allow this section to be the scroll container so header/toolbar stay fixed */
+            min-height: 0;
+            overflow: auto;
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px;
+            box-shadow: var(--shadow);
+        }
+
+        .card h2 {
+            margin: 0 0 8px 0;
+            font-size: 15px;
+            letter-spacing: 0.2px;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        label { font-size: 12px; color: var(--muted); }
+
+        input, select {
+            background: var(--panel-alt);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 13px;
+        }
+
+        input:focus, select:focus { outline: 1px solid var(--accent); }
+
+        .toggle-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 8px;
+        }
+
+        .toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--panel-alt);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 8px 10px;
+        }
+
+        .actions {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        button {
+            border: none;
+            border-radius: 10px;
+            padding: 12px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            color: #0b0c0f;
+            background: var(--accent);
+            transition: transform 120ms ease, box-shadow 120ms ease;
+            box-shadow: 0 10px 20px rgba(15,163,177,0.24);
+        }
+
+        button.secondary { background: var(--accent-strong); box-shadow: 0 10px 20px rgba(242,158,76,0.24); }
+        button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); box-shadow: none; }
+        button:hover { transform: translateY(-1px); }
+
+        .section-split { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 10px; }
+
+        .status-bar {
+            margin-top: 8px;
+            padding: 10px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid var(--border);
+            min-height: 38px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+        .status-dot.ok { background: var(--success); }
+        .status-dot.warn { background: var(--danger); }
+
+        .capsule {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: var(--panel-alt);
+            font-size: 11px;
+            color: var(--muted);
+            margin-left: 6px;
+        }
+
+        .advanced { background: linear-gradient(135deg, rgba(15,163,177,0.08), rgba(255,255,255,0)); }
+
+        @media (max-width: 640px) {
+            .form-grid { grid-template-columns: 1fr; }
+            .actions { grid-template-columns: 1fr; }
+        }
+
+        /* Toolbar additions */
+        .toolbar {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 10px 12px;
+            box-shadow: var(--shadow);
+            display: grid;
+            grid-template-rows: auto auto;
+            gap: 8px;
+        }
+
+        /* Make toolbar actions flow inline nicely */
+        .toolbar .actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <div class="header">
+            <h1>Urchin Generator</h1>
+            <div class="status-row">
+                <div class="chip">
+                    <div class="label">Vertices</div>
+                    <div class="value" id="statVertices">—</div>
+                </div>
+                <div class="chip">
+                    <div class="label">Faces</div>
+                    <div class="value" id="statFaces">—</div>
+                </div>
+                <div class="chip">
+                    <div class="label">Spike Count</div>
+                    <div class="value" id="statSpikes">—</div>
+                </div>
+                <div class="chip">
+                    <div class="label">Elapsed (s)</div>
+                    <div class="value" id="statTime">—</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="toolbar">
+            <div class="actions">
+                <button onclick="generate()">Generate Urchin</button>
+                <button class="secondary" onclick="exportStl()">Export STL</button>
+                <button class="ghost" onclick="exportConfig()">Save Config</button>
+            </div>
+            <div class="toggle-row">
+                <label class="toggle"><input id="debugMode" type="checkbox">Verbose debug</label>
+            </div>
+            <div class="status-bar" id="statusBar">
+                <div class="status-dot" id="statusDot"></div>
+                <div id="statusText">Ready</div>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h2>Urchin Parameters</h2>
+                
+                <!-- Row 1: Include Core + Core Radius -->
+                <div style="display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: end; margin-bottom: 10px;">
+                    <label class="toggle" style="margin: 0;"><input id="includeCore" type="checkbox">Include Core</label>
+                    <div class="field" style="margin: 0;">
+                        <label>Core Radius (nm)</label>
+                        <input id="coreRadius" type="number" step="0.1" title="Core Radius in nanometers">
+                    </div>
+                </div>
+
+                <!-- Row 2: Spike Length + Fluctuation Method + Fluctuation Factor (3 columns) -->
+                <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px;">
+                    <div class="field" style="margin: 0;">
+                        <label>Spike Length (nm)</label>
+                        <input id="spikeLength" type="number" step="0.1" title="Spike Length in nanometers">
+                    </div>
+                    <div class="field" style="margin: 0;">
+                        <label>Fluctuation Method</label>
+                        <select id="flucMethod" title="Choose fluctuation method"></select>
+                    </div>
+                    <div class="field" style="margin: 0;">
+                        <label>Fluctuation Factor</label>
+                        <input id="flucFactor" type="number" step="0.05" min="0" max="1" title="Fluctuation Factor between 0 and 1">
+                    </div>
+                </div>
+
+                <!-- Row 3: Spike Count + Distribution Method -->
+                <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px;">
+                    <div class="field" style="margin: 0;">
+                        <label>Spike Count</label>
+                        <input id="spikeCount" type="number" step="1" min="0" title="Number of spikes">
+                    </div>
+                    <div class="field" style="margin: 0;">
+                        <label>Distribution Method</label>
+                        <select id="distMethod" title="Choose distribution method"></select>
+                    </div>
+                </div>
+
+                <!-- Row 4: Refine Orientation + Refine Orientation Threshold -->
+                <div style="display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: end; margin-bottom: 10px;">
+                    <label class="toggle" style="margin: 0;"><input id="refinedOrientation" type="checkbox">Refine Orientation</label>
+                    <div class="field" style="margin: 0;">
+                        <label>Threshold (deg)</label>
+                        <input id="refineThreshold" type="number" step="0.1" title="Refine Orientation Threshold in degrees">
+                    </div>
+                </div>
+
+                <!-- Row 5: Spike Conicality + Spike Tip Diameter -->
+                <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px;">
+                    <div class="field" style="margin: 0;">
+                        <label>Spike Conicality [-1,1]</label>
+                        <input id="spikeConicality" type="number" step="0.05" min="-1" max="1" title="Spike Conicality between -1 and 1">
+                    </div>
+                    <div class="field" style="margin: 0;">
+                        <label>Spike Tip Diameter (nm)</label>
+                        <input id="spikeTipDiameter" type="number" step="0.1" title="Spike Tip Diameter in nanometers">
+                    </div>
+                </div>
+
+                <!-- Row 6: Use Fillet + Fillet Ratio -->
+                <div style="display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: end; margin-bottom: 10px;">
+                    <label class="toggle" style="margin: 0;"><input id="useFillet" type="checkbox">Use Fillet</label>
+                    <div class="field" style="margin: 0;">
+                        <label>Fillet Ratio (0-0.5)</label>
+                        <input id="filletRatio" type="number" step="0.05" min="0" max="0.5" title="Fillet Ratio between 0 and 0.5">
+                    </div>
+                </div>
+
+                <!-- Row 7: Resolution + minSpacing (calculated) -->
+                <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;">
+                    <div class="field" style="margin: 0;">
+                        <label>Resolution</label>
+                        <input id="resolution" type="number" step="1" min="10" title="Mesh resolution (minimum 10)">
+                    </div>
+                    <div class="field" style="margin: 0;">
+                        <label>Min Spacing (computed)</label>
+                        <div id="minSpacingDisplay" style="background: var(--panel-alt); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; color: var(--muted); font-size: 13px;">—</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card advanced">
+                <h2>Volume (optional)</h2>
+                
+                <!-- Volume controls in 2 columns -->
+                <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;">
+                    <div class="field" style="margin: 0;">
+                        <label>Generate Volume</label>
+                        <select id="genVolume" title="Enable or disable volume generation">
+                            <option value="false">Off</option>
+                            <option value="true">On</option>
+                        </select>
+                    </div>
+                    <div class="field" style="margin: 0;">
+                        <label>Vol Resolution</label>
+                        <input id="volResolution" type="number" step="8" min="16" title="Volume resolution (minimum 16)">
+                    </div>
+                    <div class="field" style="margin: 0;">
+                        <label>Vol Padding</label>
+                        <input id="volPadding" type="number" step="0.01" min="0" max="0.5" title="Volume padding between 0 and 0.5">
+                    </div>
+                    <div class="field" style="margin: 0;">
+                        <label>Vol Alpha (empty = auto)</label>
+                        <input id="volAlpha" type="number" step="0.1" placeholder="auto" title="Volume alpha value (leave empty for auto)">
+                    </div>
+                    <div class="field" style="margin: 0;">
+                        <label>Adaptive Octree</label>
+                        <select id="volAdaptive" title="Enable or disable adaptive octree">
+                            <option value="false">Off</option>
+                            <option value="true">On</option>
+                        </select>
+                    </div>
+                    <div class="field" style="margin: 0;">
+                        <label>Vol Criterion</label>
+                        <select id="volCriterion" title="Choose volume criterion"></select>
+                    </div>
+                    <div class="field" style="margin: 0;">
+                        <label>Vol Dx Max</label>
+                        <input id="volDxMax" type="number" step="0.01" placeholder="auto" title="Maximum volume dx (leave empty for auto)">
+                    </div>
+                    <div class="field" style="margin: 0;">
+                        <label>Vol Dx Min</label>
+                        <input id="volDxMin" type="number" step="0.001" placeholder="auto" title="Minimum volume dx (leave empty for auto)">
+                    </div>
+                    <div class="field" style="margin: 0;">
+                        <label>Vol Block Size</label>
+                        <input id="volBlockSize" type="number" step="1" min="4" title="Volume block size (minimum 4)">
+                    </div>
+                </div>
+            </div>
+
+            
+        </div>
+    </div>
+
+    <script>
+        let htmlComponent = null;
+        let defaults = {};
+        let ranges = {};
+        let options = {};
+
+        function setup(component) {
+            htmlComponent = component;
+
+            htmlComponent.addEventListener("Boot", event => applyConfig(event.Data));
+            htmlComponent.addEventListener("DataChanged", () => applyConfig(htmlComponent.Data));
+            htmlComponent.addEventListener("Result", event => renderResult(event.Data));
+            htmlComponent.addEventListener("Error", event => showError(event.Data));
+            htmlComponent.addEventListener("Exported", event => showSuccess("Exported to: " + event.Data.path));
+
+            maybeApplyData();
+
+            htmlComponent.sendEventToMATLAB("Ready", {});
+        }
+
+        // Fallback to populate defaults if Boot/DataChanged have not yet fired
+        function maybeApplyData() {
+            const payload = htmlComponent?.Data;
+            if (payload && payload.defaults) {
+                applyConfig(payload);
+            }
+        }
+
+        function applyConfig(payload) {
+            if (!payload || !payload.defaults) return;
+            defaults = payload.defaults;
+            ranges = payload.ranges || {};
+            options = payload.options || {};
+
+            setOptions("flucMethod", options.FlucMethod);
+            setOptions("distMethod", options.DistMethod);
+            setOptions("volCriterion", options.VolCriterion);
+
+            setNumber("coreRadius", defaults.CoreRadius, ranges.CoreRadius);
+            setNumber("spikeLength", defaults.SpikeLength, ranges.SpikeLength);
+            setNumber("spikeCount", defaults.SpikeCount, ranges.SpikeCount);
+            setNumber("spikeTipDiameter", defaults.SpikeTipDiameter, ranges.SpikeTipDiameter);
+            setNumber("spikeConicality", defaults.SpikeConicality, ranges.SpikeConicality);
+            setNumber("filletRatio", defaults.FilletRatio, ranges.FilletRatio);
+            setNumber("resolution", defaults.Resolution, ranges.Resolution);
+            setNumber("flucFactor", defaults.FlucFactor, ranges.FlucFactor);
+            setNumber("refineThreshold", defaults.RefinedOrientationThresholdDeg, ranges.RefinedOrientationThresholdDeg);
+            setNumber("volResolution", defaults.VolResolution, ranges.VolResolution);
+            setNumber("volPadding", defaults.VolPadding, ranges.VolPadding);
+            setNumber("volAlpha", defaults.VolAlpha, ranges.VolAlpha);
+            setNumber("volDxMax", defaults.VolDxMax, ranges.VolDxMax);
+            setNumber("volDxMin", defaults.VolDxMin, ranges.VolDxMin);
+            setNumber("volBlockSize", defaults.VolBlockSize, ranges.VolBlockSize);
+
+            document.getElementById("useFillet").checked = !!defaults.UseFillet;
+            document.getElementById("includeCore").checked = !!defaults.IncludeCore;
+            document.getElementById("refinedOrientation").checked = !!defaults.RefinedOrientation;
+            document.getElementById("genVolume").value = defaults.GenVolume ? "true" : "false";
+            document.getElementById("volAdaptive").value = defaults.VolAdaptive ? "true" : "false";
+
+            setStatus("Ready", "ok");
+        }
+
+        function setOptions(selectId, list) {
+            const sel = document.getElementById(selectId);
+            sel.innerHTML = "";
+            normalizeList(list).forEach(opt => {
+                const o = document.createElement("option");
+                o.value = opt;
+                o.textContent = opt;
+                sel.appendChild(o);
+            });
+        }
+
+        function normalizeList(list) {
+            if (Array.isArray(list)) return list;
+            if (list && typeof list === "object") return Object.values(list);
+            if (list != null) return [list];
+            return [];
+        }
+
+        function setNumber(id, value, range) {
+            const el = document.getElementById(id);
+            if (range && range.length === 2) {
+                el.min = range[0];
+                el.max = range[1];
+            }
+            if (value !== undefined && value !== null && value !== "") {
+                el.value = value;
+            } else {
+                el.value = "";
+            }
+        }
+
+        function generate() {
+            if (!htmlComponent) return;
+            setStatus("Generating...", "pending");
+            htmlComponent.sendEventToMATLAB("Generate", collectForm());
+        }
+
+        function exportStl() {
+            if (!htmlComponent) return;
+            setStatus("Exporting STL...", "pending");
+            htmlComponent.sendEventToMATLAB("ExportSTL", {});
+        }
+
+        function exportConfig() {
+            if (!htmlComponent) return;
+            setStatus("Saving config...", "pending");
+            htmlComponent.sendEventToMATLAB("ExportConfig", collectForm());
+        }
+
+        function collectForm() {
+            return {
+                CoreRadius: numberFrom("coreRadius"),
+                SpikeLength: numberFrom("spikeLength"),
+                SpikeCount: numberFrom("spikeCount"),
+                SpikeTipDiameter: numberFrom("spikeTipDiameter"),
+                SpikeConicality: numberFrom("spikeConicality"),
+                FilletRatio: numberFrom("filletRatio"),
+                Resolution: numberFrom("resolution"),
+                UseFillet: document.getElementById("useFillet").checked,
+                IncludeCore: document.getElementById("includeCore").checked,
+                FlucFactor: numberFrom("flucFactor"),
+                FlucMethod: document.getElementById("flucMethod").value,
+                DistMethod: document.getElementById("distMethod").value,
+                RefinedOrientation: document.getElementById("refinedOrientation").checked,
+                RefinedOrientationThresholdDeg: numberFrom("refineThreshold"),
+                GenVolume: document.getElementById("genVolume").value === "true",
+                VolResolution: numberFrom("volResolution"),
+                VolPadding: numberFrom("volPadding"),
+                VolAlpha: numberOrEmpty("volAlpha"),
+                VolAdaptive: document.getElementById("volAdaptive").value === "true",
+                VolDxMax: numberOrEmpty("volDxMax"),
+                VolDxMin: numberOrEmpty("volDxMin"),
+                VolBlockSize: numberFrom("volBlockSize"),
+                VolCriterion: document.getElementById("volCriterion").value,
+                Debug: document.getElementById("debugMode").checked
+            };
+        }
+
+        function numberFrom(id) {
+            const v = document.getElementById(id).value;
+            if (v === "") {
+                const key = defaultKey(id);
+                return key in defaults ? defaults[key] : 0;
+            }
+            return parseFloat(v);
+        }
+
+        function numberOrEmpty(id) {
+            const v = document.getElementById(id).value;
+            return v === "" ? "" : parseFloat(v);
+        }
+
+        function defaultKey(id) {
+            if (!id || typeof id !== "string") return "";
+            // Special case: refineThreshold maps to RefinedOrientationThresholdDeg
+            if (id === "refineThreshold") return "RefinedOrientationThresholdDeg";
+            const first = id.charAt(0).toUpperCase();
+            return first + id.slice(1);
+        }
+
+        function renderResult(data) {
+            setStatus("Generated", "ok");
+            setValue("statVertices", data.Vertices);
+            setValue("statFaces", data.Faces);
+            setValue("statSpikes", data.SpikeCount != null ? data.SpikeCount : "—");
+            const t = data.ElapsedSeconds;
+            setValue("statTime", typeof t === "number" ? t.toFixed(2) : t);
+        }
+
+        function showError(msg) {
+            setStatus(msg || "Error", "warn");
+        }
+
+        function showSuccess(msg) {
+            setStatus(msg, "ok");
+        }
+
+        function setValue(id, value) {
+            document.getElementById(id).textContent = value ?? "—";
+        }
+
+        function setStatus(text, tone) {
+            const status = document.getElementById("statusText");
+            const dot = document.getElementById("statusDot");
+            status.textContent = text;
+            dot.classList.remove("ok", "warn");
+            if (tone === "ok") dot.classList.add("ok");
+            if (tone === "warn") dot.classList.add("warn");
+        }
+    </script>
+</body>
+</html>

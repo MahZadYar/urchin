@@ -6,6 +6,22 @@ All notable changes to this project will be documented in this file. The
 format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.1.0] - 2026-01-09
+
+### Added
+
+- **Interactive Dashboard**: New `urchinDashboard` UI application with HTML/JavaScript
+  control panel and viewer3d-based 3D preview. Exposes all urchin parameters with
+  intelligent layout, real-time mesh generation, STL/config export, and computed
+  minSpacing display.
+- Custom grid layout with fixed toolbar (Generate/Export buttons, debug toggle, status bar)
+  and scrollable parameter sections organized into Core & General, Spike Configuration,
+  and optional Volume controls.
+- Auto-generates default urchin on startup for immediate preview.
+- Visualization style matches `urchin.m` (camera positioning, translucent fill with
+  wireframe overlay, lighting off).
+- Robust viewer3d lifecycle management with proper cleanup and repositioning callbacks.
+
 ## [5.0.0] - 2026-01-09
 
 ### Breaking Changes
